@@ -11,14 +11,22 @@ type MessageType uint
 const (
 	// An error occured.
 	ERROR MessageType = iota
+	// Task is added.
+	ADDED
+	// Task is removed.
+	REMOVED
+	// Task is updated.
+	UPDATED
 	// Task is scheduled.
 	SCHEDULED
 	// Task is started.
 	STARTED
 	// Task is stopped.
 	STOPPED
-	// Task is restored.
-	RESTORED
+	// Task data is saved.
+	SAVED
+	// Task data is loaded.
+	LOADED
 	// Progress of task is updated.
 	PROGRESS_UPDATED
 	// Task is done.
@@ -34,10 +42,14 @@ const (
 var (
 	messageTypeStrs = map[MessageType]string{
 		ERROR:            "error",
+		ADDED:            "added",
+		REMOVED:          "removed",
+		UPDATED:          "updated",
 		SCHEDULED:        "scheduled",
 		STARTED:          "started",
 		STOPPED:          "stopped",
-		RESTORED:         "restored",
+		SAVED:            "saved",
+		LOADED:           "loaded",
 		PROGRESS_UPDATED: "progress_updated",
 		EXITED:           "exited",
 		DONE:             "done",
@@ -48,7 +60,7 @@ var (
 // Message represents the messages.
 type Message struct {
 	// Task ID
-	ID string `json:"task_id"`
+	TaskID string `json:"task_id"`
 	// Type is the type code(uint) of message.
 	Type MessageType `json:"type"`
 	// TypeStr is the type in string.

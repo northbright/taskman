@@ -64,7 +64,7 @@ func ExampleTaskMan_Run() {
 			switch m.Type {
 			case taskman.PROGRESS_UPDATED:
 				p, _ := m.Data.(int)
-				log.Printf("task: %v, progress: %v", m.ID, p)
+				log.Printf("task: %v, progress: %v", m.TaskID, p)
 			}
 		}
 	}
