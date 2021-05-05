@@ -31,6 +31,8 @@ const (
 	// Goroutine of the task exited.
 	// It's send after one of ERROR / STOPPED / DONE message.
 	EXITED
+	// All tasks exited.
+	ALL_EXITED
 	// Unknown message type.
 	UNKNOWN
 	maxTYPE
@@ -47,6 +49,7 @@ var (
 		STOPPED:          "stopped",
 		PROGRESS_UPDATED: "progress_updated",
 		EXITED:           "exited",
+		ALL_EXITED:       "all_exited",
 		DONE:             "done",
 		UNKNOWN:          "unknown",
 	}
@@ -55,6 +58,7 @@ var (
 // Message represents the messages.
 type Message struct {
 	// Task ID
+	// Ignored for ALL_EXITED type.
 	TaskID string `json:"task_id"`
 	// Type is the type code(uint) of message.
 	Type MessageType `json:"type"`
@@ -70,6 +74,7 @@ type Message struct {
 	// PROGRESS_UPDATED: data is a int to store the percent(0 - 100).
 	// DONE: data is []byte to store the final state.
 	// EXITED: data is nil.
+	// ALL_EXITED: data is nil.
 	Data interface{} `json:"data,omitempty"`
 }
 

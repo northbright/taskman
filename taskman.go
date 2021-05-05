@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	//"log"
+	"log"
 	"sync"
 
 	"github.com/northbright/uuid"
@@ -98,8 +98,6 @@ func run(ctx context.Context, id string, state []byte, tm *TaskMan, t Task) {
 	go func() {
 		for {
 			select {
-			case <-ctx.Done():
-				return
 			case p, ok := <-chProgress:
 				if !ok {
 					// Progress channel is closed when run() is about to exit.
@@ -130,6 +128,9 @@ func run(ctx context.Context, id string, state []byte, tm *TaskMan, t Task) {
 
 	tm.mu.Lock()
 	delete(tm.cancelFuncs, id)
+	if len(tm.cancelFuncs) == 0 {
+		tm.ch <- newMessage("", ALL_EXITED, nil)
+	}
 	tm.mu.Unlock()
 }
 
@@ -147,6 +148,7 @@ func (tm *TaskMan) Remove(id string) error {
 	tm.mu.Unlock()
 
 	if ok {
+		log.Printf("call cancel()")
 		cancel()
 	}
 
