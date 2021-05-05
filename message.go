@@ -10,6 +10,7 @@ type MessageType uint
 
 const (
 	// An error occured.
+	// context.Canceled and context.DeadlineExceeded will not be treated as errors.
 	ERROR MessageType = iota
 	// Task is added.
 	ADDED
@@ -23,10 +24,6 @@ const (
 	STARTED
 	// Task is stopped.
 	STOPPED
-	// Task data is saved.
-	SAVED
-	// Task data is loaded.
-	LOADED
 	// Progress of task is updated.
 	PROGRESS_UPDATED
 	// Task is done.
@@ -48,8 +45,6 @@ var (
 		SCHEDULED:        "scheduled",
 		STARTED:          "started",
 		STOPPED:          "stopped",
-		SAVED:            "saved",
-		LOADED:           "loaded",
 		PROGRESS_UPDATED: "progress_updated",
 		EXITED:           "exited",
 		DONE:             "done",
@@ -71,7 +66,7 @@ type Message struct {
 	// ERROR: data is a string to store error message.
 	// SCHEDULED: data is nil.
 	// STARTED: data is nil.
-	// STOPPED, RESTORED: data is []byte to store saved state.
+	// STOPPED: data is []byte to store saved state.
 	// PROGRESS_UPDATED: data is a int to store the percent(0 - 100).
 	// DONE: data is []byte to store the final state.
 	// EXITED: data is nil.
@@ -93,6 +88,6 @@ func newMessage(id string, t MessageType, data interface{}) Message {
 // All types of messages are JSON-friendly.
 // To get the meaning of Message.Data for different types of messages,
 // check comments of Message struct.
-func (m *Message) JSON() ([]byte, error) {
+func (m Message) JSON() ([]byte, error) {
 	return json.Marshal(m)
 }
