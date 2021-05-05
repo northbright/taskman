@@ -15,13 +15,22 @@ func (t *MyTask) UniqueChecksum() []byte {
 }
 
 func (t *MyTask) Run(ctx context.Context, state []byte, chProgress chan<- int) ([]byte, error) {
+	i := 0
 
-	for i := 0; i <= 100; i++ {
-		chProgress <- i
-		time.Sleep(time.Millisecond * 5)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+			if i <= 100 {
+				chProgress <- i
+				time.Sleep(time.Millisecond * 5)
+				i++
+			} else {
+				return nil, nil
+			}
+		}
 	}
-
-	return nil, nil
 }
 
 func ExampleTaskMan_Run() {
@@ -47,7 +56,18 @@ func ExampleTaskMan_Run() {
 			return
 		}
 		log.Printf("id: %v", id)
-		tm.Run(id, nil)
+
+		if err = tm.Run(id, nil); err != nil {
+			log.Printf("run task %v error: %v", id, err)
+			return
+		}
+
+		time.Sleep(time.Millisecond * 30)
+
+		if err = tm.Remove(id); err != nil {
+			log.Printf("remove task %v error: %v", id, err)
+			return
+		}
 	}()
 
 	for {
