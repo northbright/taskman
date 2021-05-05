@@ -135,15 +135,19 @@ func run(ctx context.Context, id string, state []byte, tm *TaskMan, t Task) {
 
 func (tm *TaskMan) Remove(id string) error {
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
+	_, ok := tm.tasks[id]
+	tm.mu.Unlock()
 
-	if _, ok := tm.tasks[id]; !ok {
+	if !ok {
 		return ErrTaskNotFound
 	}
 
-	if cancel, ok := tm.cancelFuncs[id]; ok {
+	tm.mu.Lock()
+	cancel, ok := tm.cancelFuncs[id]
+	tm.mu.Unlock()
+
+	if ok {
 		cancel()
-		return nil
 	}
 
 	return nil
