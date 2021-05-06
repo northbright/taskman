@@ -12,12 +12,6 @@ const (
 	// An error occured.
 	// context.Canceled and context.DeadlineExceeded will not be treated as errors.
 	ERROR MessageType = iota
-	// Task is added.
-	ADDED
-	// Task is removed.
-	REMOVED
-	// Task is updated.
-	UPDATED
 	// Task is scheduled.
 	SCHEDULED
 	// Task is started.
@@ -41,9 +35,6 @@ const (
 var (
 	messageTypeStrs = map[MessageType]string{
 		ERROR:            "error",
-		ADDED:            "added",
-		REMOVED:          "removed",
-		UPDATED:          "updated",
 		SCHEDULED:        "scheduled",
 		STARTED:          "started",
 		STOPPED:          "stopped",
