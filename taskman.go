@@ -134,6 +134,15 @@ func run(ctx context.Context, id string, state []byte, tm *TaskMan, t Task) {
 	tm.mu.Unlock()
 }
 
+func (tm *TaskMan) Stop(id string) error {
+	return nil
+}
+
+func (tm *TaskMan) stop(ctx context.Context, id string) error {
+
+	return nil
+}
+
 func (tm *TaskMan) Remove(id string) error {
 	tm.mu.Lock()
 	_, ok := tm.tasks[id]
