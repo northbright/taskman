@@ -64,6 +64,33 @@ func (tm *TaskMan) Add(t Task) (string, error) {
 	return id, nil
 }
 
+func (tm *TaskMan) Update(id string, t Task) error {
+	tm.muOp.Lock()
+	defer tm.muOp.Unlock()
+
+	tm.muMap.Lock()
+	_, ok := tm.tasks[id]
+	tm.muMap.Unlock()
+
+	if !ok {
+		return ErrTaskNotFound
+	}
+
+	tm.muMap.Lock()
+	_, ok = tm.cancelFuncs[id]
+	tm.muMap.Unlock()
+
+	if ok {
+		return ErrTaskIsRunning
+	}
+
+	tm.muMap.Lock()
+	tm.tasks[id] = t
+	tm.muMap.Unlock()
+
+	return nil
+}
+
 func (tm *TaskMan) Run(id string, state []byte) error {
 	tm.muOp.Lock()
 	defer tm.muOp.Unlock()

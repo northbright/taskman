@@ -2,7 +2,9 @@ package taskman_test
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/northbright/taskman"
@@ -19,15 +21,28 @@ func (t *MyTask) UniqueChecksum() []byte {
 func (t *MyTask) Run(ctx context.Context, state []byte, chProgress chan<- int) ([]byte, error) {
 	i := 0
 
+	// Load state if need.
+	// Convert state to percentage.
+	if state != nil {
+		i, _ = strconv.Atoi(string(state))
+		log.Printf("load state: i = %v", i)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			log.Printf("Run is canceled")
-			return nil, ctx.Err()
+
+			// Return the progress percentage as state
+			return []byte(fmt.Sprintf("%d", i)), ctx.Err()
 		default:
 			if i <= 100 {
 				log.Printf("Hello, %v", t.Name)
+
+				// Send percentage to progress channel.
 				chProgress <- i
+
+				// Emulate heavy work by sleeping.
 				time.Sleep(time.Millisecond * 5)
 				i++
 			} else {
@@ -37,7 +52,7 @@ func (t *MyTask) Run(ctx context.Context, state []byte, chProgress chan<- int) (
 	}
 }
 
-func ExampleTaskMan_Run() {
+func ExampleTaskMan() {
 	tm, ch := taskman.New(context.Background(), 2)
 
 	go func() {
@@ -69,7 +84,7 @@ func ExampleTaskMan_Run() {
 			log.Printf("stop task: %v error: %v", ids[0], err)
 			return
 		}
-		log.Printf("stop task: %v", ids[0])
+		log.Printf("stop task: %v successfully", ids[0])
 	}()
 
 	for {
@@ -84,6 +99,23 @@ func ExampleTaskMan_Run() {
 				log.Printf("task: %v started", m.TaskID)
 			case taskman.STOPPED:
 				log.Printf("task: %v stopped", m.TaskID)
+				// Update the task.
+				id := m.TaskID
+				t := &MyTask{"Capt"}
+				if err := tm.Update(id, t); err != nil {
+					log.Printf("update task: %v error: %v", id, err)
+					return
+				}
+				log.Printf("update task: %v successfully", id)
+
+				// Resume task with state.
+				state, _ := m.Data.([]byte)
+				if err := tm.Run(id, state); err != nil {
+					log.Printf("Resume task: %v error: %v", id, err)
+					return
+				}
+				log.Printf("Resume task: %v successfully", m.TaskID)
+
 			case taskman.DONE:
 				log.Printf("task: %v done", m.TaskID)
 			case taskman.EXITED:
