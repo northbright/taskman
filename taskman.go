@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"log"
+	//"log"
 	"sync"
 
 	"github.com/northbright/uuid"
@@ -13,7 +13,10 @@ import (
 type TaskMan struct {
 	ctx         context.Context
 	concurrency int
-	mu          *sync.Mutex
+	// Make map goroutine safe
+	muMap *sync.Mutex
+	// Make operation goroutine safe
+	muOp        *sync.Mutex
 	sem         chan struct{}
 	ch          chan Message
 	tasks       map[string]Task
@@ -31,6 +34,7 @@ func New(ctx context.Context, concurrency int) (*TaskMan, <-chan Message) {
 		ctx,
 		concurrency,
 		&sync.Mutex{},
+		&sync.Mutex{},
 		make(chan struct{}, concurrency),
 		make(chan Message),
 		make(map[string]Task),
@@ -41,8 +45,8 @@ func New(ctx context.Context, concurrency int) (*TaskMan, <-chan Message) {
 }
 
 func (tm *TaskMan) Add(t Task) (string, error) {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
+	tm.muOp.Lock()
+	defer tm.muOp.Unlock()
 
 	for _, task := range tm.tasks {
 		if bytes.Equal(task.UniqueChecksum(), t.UniqueChecksum()) {
@@ -51,23 +55,28 @@ func (tm *TaskMan) Add(t Task) (string, error) {
 	}
 
 	id, _ := uuid.New()
+	tm.muMap.Lock()
 	tm.tasks[id] = t
+	tm.muMap.Unlock()
 
 	return id, nil
 }
 
 func (tm *TaskMan) Run(id string, state []byte) error {
-	tm.mu.Lock()
+	tm.muOp.Lock()
+	defer tm.muOp.Unlock()
+
+	tm.muMap.Lock()
 	t, ok := tm.tasks[id]
-	tm.mu.Unlock()
+	tm.muMap.Unlock()
 
 	if !ok {
 		return ErrTaskNotFound
 	}
 
-	tm.mu.Lock()
+	tm.muMap.Lock()
 	_, ok = tm.cancelFuncs[id]
-	tm.mu.Unlock()
+	tm.muMap.Unlock()
 
 	if ok {
 		return ErrTaskIsRunning
@@ -75,9 +84,9 @@ func (tm *TaskMan) Run(id string, state []byte) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	tm.mu.Lock()
+	tm.muMap.Lock()
 	tm.cancelFuncs[id] = cancel
-	tm.mu.Unlock()
+	tm.muMap.Unlock()
 
 	go func() {
 		run(ctx, id, state, tm, t)
@@ -126,12 +135,12 @@ func run(ctx context.Context, id string, state []byte, tm *TaskMan, t Task) {
 		tm.ch <- newMessage(id, DONE, newState)
 	}
 
-	tm.mu.Lock()
+	tm.muMap.Lock()
 	delete(tm.cancelFuncs, id)
 	if len(tm.cancelFuncs) == 0 {
 		tm.ch <- newMessage("", ALL_EXITED, nil)
 	}
-	tm.mu.Unlock()
+	tm.muMap.Unlock()
 }
 
 func (tm *TaskMan) Stop(id string) error {
@@ -144,20 +153,22 @@ func (tm *TaskMan) stop(ctx context.Context, id string) error {
 }
 
 func (tm *TaskMan) Remove(id string) error {
-	tm.mu.Lock()
+	tm.muOp.Lock()
+	defer tm.muOp.Unlock()
+
+	tm.muMap.Lock()
 	_, ok := tm.tasks[id]
-	tm.mu.Unlock()
+	tm.muMap.Unlock()
 
 	if !ok {
 		return ErrTaskNotFound
 	}
 
-	tm.mu.Lock()
+	tm.muMap.Lock()
 	cancel, ok := tm.cancelFuncs[id]
-	tm.mu.Unlock()
+	tm.muMap.Unlock()
 
 	if ok {
-		log.Printf("call cancel()")
 		cancel()
 	}
 
