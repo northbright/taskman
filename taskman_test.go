@@ -65,11 +65,11 @@ func ExampleTaskMan_Run() {
 		time.Sleep(time.Millisecond * 30)
 
 		// Stop first task
-		if err := tm.Remove(ids[0]); err != nil {
-			log.Printf("remove task: %v error: %v", ids[0], err)
+		if err := tm.Stop(ids[0]); err != nil {
+			log.Printf("stop task: %v error: %v", ids[0], err)
 			return
 		}
-		log.Printf("remove task: %v", ids[0])
+		log.Printf("stop task: %v", ids[0])
 	}()
 
 	for {

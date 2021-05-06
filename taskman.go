@@ -16,11 +16,12 @@ type TaskMan struct {
 	// Make map goroutine safe
 	muMap *sync.Mutex
 	// Make operation goroutine safe
-	muOp        *sync.Mutex
-	sem         chan struct{}
-	ch          chan Message
-	tasks       map[string]Task
-	cancelFuncs map[string]context.CancelFunc
+	muOp         *sync.Mutex
+	sem          chan struct{}
+	ch           chan Message
+	tasks        map[string]Task
+	cancelFuncs  map[string]context.CancelFunc
+	exitChannels map[string]chan struct{}
 }
 
 var (
@@ -39,6 +40,7 @@ func New(ctx context.Context, concurrency int) (*TaskMan, <-chan Message) {
 		make(chan Message),
 		make(map[string]Task),
 		make(map[string]context.CancelFunc),
+		make(map[string]chan struct{}),
 	}
 
 	return tm, tm.ch
@@ -86,6 +88,7 @@ func (tm *TaskMan) Run(id string, state []byte) error {
 
 	tm.muMap.Lock()
 	tm.cancelFuncs[id] = cancel
+	tm.exitChannels[id] = make(chan struct{})
 	tm.muMap.Unlock()
 
 	go func() {
@@ -140,22 +143,18 @@ func run(ctx context.Context, id string, state []byte, tm *TaskMan, t Task) {
 	if len(tm.cancelFuncs) == 0 {
 		tm.ch <- newMessage("", ALL_EXITED, nil)
 	}
+	close(tm.exitChannels[id])
 	tm.muMap.Unlock()
 }
 
 func (tm *TaskMan) Stop(id string) error {
-	return nil
-}
-
-func (tm *TaskMan) stop(ctx context.Context, id string) error {
-
-	return nil
-}
-
-func (tm *TaskMan) Remove(id string) error {
 	tm.muOp.Lock()
 	defer tm.muOp.Unlock()
 
+	return tm.stop(id)
+}
+
+func (tm *TaskMan) stop(id string) error {
 	tm.muMap.Lock()
 	_, ok := tm.tasks[id]
 	tm.muMap.Unlock()
@@ -171,6 +170,35 @@ func (tm *TaskMan) Remove(id string) error {
 	if ok {
 		cancel()
 	}
+
+	// Get the exit signal channel for the id.
+	tm.muMap.Lock()
+	chExit, ok := tm.exitChannels[id]
+	tm.muMap.Unlock()
+
+	if !ok {
+		return nil
+	}
+
+	// Block until run() exit and close the exit channel.
+	_, ok = <-chExit
+
+	return nil
+}
+
+func (tm *TaskMan) Delete(id string) error {
+	tm.muOp.Lock()
+	defer tm.muOp.Unlock()
+
+	err := tm.stop(id)
+	if err != nil {
+		return err
+	}
+
+	tm.muMap.Lock()
+	delete(tm.exitChannels, id)
+	delete(tm.tasks, id)
+	tm.muMap.Unlock()
 
 	return nil
 }
