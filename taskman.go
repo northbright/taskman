@@ -12,16 +12,18 @@ import (
 
 type TaskMan struct {
 	ctx         context.Context
+	cancel      context.CancelFunc
 	concurrency int
 	// Make map goroutine safe
 	muMap *sync.Mutex
 	// Make operation goroutine safe
-	muOp         *sync.Mutex
-	sem          chan struct{}
-	ch           chan Message
-	tasks        map[string]Task
-	cancelFuncs  map[string]context.CancelFunc
-	exitChannels map[string]chan struct{}
+	muOp           *sync.Mutex
+	sem            chan struct{}
+	_ch            chan Message
+	ch             chan Message
+	tasks          map[string]Task
+	cancelFuncs    map[string]context.CancelFunc
+	exitedChannels map[string]chan struct{}
 }
 
 var (
@@ -30,26 +32,32 @@ var (
 	ErrTaskIsRunning = errors.New("task is running")
 )
 
-func New(ctx context.Context, concurrency int) (*TaskMan, <-chan Message) {
+func New(concurrency int) (*TaskMan, <-chan Message) {
+	ctx, cancel := context.WithCancel(context.Background())
 	tm := &TaskMan{
 		ctx,
+		cancel,
 		concurrency,
 		&sync.Mutex{},
 		&sync.Mutex{},
 		make(chan struct{}, concurrency),
+		make(chan Message),
 		make(chan Message),
 		make(map[string]Task),
 		make(map[string]context.CancelFunc),
 		make(map[string]chan struct{}),
 	}
 
-	return tm, tm.ch
-}
-
-func (tm *TaskMan) postMessage(m Message) {
 	go func() {
-		tm.ch <- m
+		for {
+			select {
+			case m := <-tm._ch:
+				tm.ch <- m
+			}
+		}
 	}()
+
+	return tm, tm.ch
 }
 
 func (tm *TaskMan) Add(t Task) (string, error) {
@@ -117,11 +125,11 @@ func (tm *TaskMan) Run(id string, state []byte) error {
 		return ErrTaskIsRunning
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(tm.ctx)
 
 	tm.muMap.Lock()
 	tm.cancelFuncs[id] = cancel
-	tm.exitChannels[id] = make(chan struct{})
+	tm.exitedChannels[id] = make(chan struct{})
 	tm.muMap.Unlock()
 
 	go func() {
@@ -136,7 +144,7 @@ func run(ctx context.Context, id string, state []byte, tm *TaskMan, t Task) {
 
 	defer func() {
 		<-tm.sem
-		tm.postMessage(newMessage(id, EXITED, nil))
+		tm._ch <- newMessage(id, EXITED, nil)
 		close(chProgress)
 	}()
 
@@ -149,34 +157,34 @@ func run(ctx context.Context, id string, state []byte, tm *TaskMan, t Task) {
 					// End the loop to make goroutine exit.
 					return
 				}
-				tm.postMessage(newMessage(id, PROGRESS_UPDATED, p))
+				tm._ch <- newMessage(id, PROGRESS_UPDATED, p)
 			}
 		}
 	}()
 
-	tm.postMessage(newMessage(id, SCHEDULED, nil))
+	tm._ch <- newMessage(id, SCHEDULED, nil)
 	// Block until other task is done.
 	tm.sem <- struct{}{}
-	tm.postMessage(newMessage(id, STARTED, nil))
+	tm._ch <- newMessage(id, STARTED, nil)
 
 	newState, err := t.Run(ctx, state, chProgress)
 	if err != nil {
 		// Ignore the errors of ctx.Err() after <- ctx.Done():
 		if err != context.Canceled && err != context.DeadlineExceeded {
-			tm.postMessage(newMessage(id, ERROR, err))
+			tm._ch <- newMessage(id, ERROR, err)
 		}
 
-		tm.postMessage(newMessage(id, STOPPED, newState))
+		tm._ch <- newMessage(id, STOPPED, newState)
 	} else {
-		tm.postMessage(newMessage(id, DONE, newState))
+		tm._ch <- newMessage(id, DONE, newState)
 	}
 
 	tm.muMap.Lock()
 	delete(tm.cancelFuncs, id)
 	if len(tm.cancelFuncs) == 0 {
-		tm.postMessage(newMessage("", ALL_EXITED, nil))
+		tm._ch <- newMessage("", ALL_EXITED, nil)
 	}
-	close(tm.exitChannels[id])
+	close(tm.exitedChannels[id])
 	tm.muMap.Unlock()
 }
 
@@ -206,39 +214,28 @@ func (tm *TaskMan) stop(id string) error {
 
 	// Get the exit signal channel for the id.
 	tm.muMap.Lock()
-	chExit, ok := tm.exitChannels[id]
+	chExited, ok := tm.exitedChannels[id]
 	tm.muMap.Unlock()
 
 	if !ok {
 		return nil
 	}
 
-	// Block until run() exit and close the exit channel.
-	_, ok = <-chExit
+	// Block until run() exit and close the exited channel.
+	<-chExited
 
 	return nil
 }
 
-func (tm *TaskMan) StopAll() error {
+func (tm *TaskMan) StopAll() {
 	tm.muOp.Lock()
 	defer tm.muOp.Unlock()
 
-	ids := []string{}
+	// Close parent context's Done channel to stop all tasks.
+	tm.cancel()
 
-	// Copy task IDs.
-	tm.muMap.Lock()
-	for id, _ := range tm.tasks {
-		ids = append(ids, id)
-	}
-	tm.muMap.Unlock()
-
-	for _, id := range ids {
-		if err := tm.stop(id); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	// Block until all tasks exited.
+	<-tm.ctx.Done()
 }
 
 func (tm *TaskMan) Delete(id string) error {
@@ -251,7 +248,7 @@ func (tm *TaskMan) Delete(id string) error {
 	}
 
 	tm.muMap.Lock()
-	delete(tm.exitChannels, id)
+	delete(tm.exitedChannels, id)
 	delete(tm.tasks, id)
 	tm.muMap.Unlock()
 

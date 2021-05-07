@@ -42,14 +42,14 @@ func (t *MyTask) Run(ctx context.Context, state []byte, chProgress chan<- int) (
 			// Return the progress percentage as state
 			return []byte(fmt.Sprintf("%d", i)), ctx.Err()
 		default:
-			if i <= 100 {
+			if i < 100 {
 				log.Printf("Hello, %v", t.Name)
+				i++
 				// Send percentage to progress channel.
 				chProgress <- i
 
 				// Emulate heavy work by sleeping.
-				time.Sleep(time.Millisecond * 5)
-				i++
+				time.Sleep(time.Millisecond * 20)
 			} else {
 				return nil, nil
 			}
@@ -58,13 +58,17 @@ func (t *MyTask) Run(ctx context.Context, state []byte, chProgress chan<- int) (
 }
 
 func ExampleTaskMan() {
-	// Create a task manager which may run 2 tasks at the same time.
-	tm, ch := taskman.New(context.Background(), 2)
+	// Get the task state from message loop.
+	chState := make(chan []byte)
+
+	// Create a task manager which may run 2 task(s) at the same time.
+	tm, ch := taskman.New(2)
+
+	ids := []string{}
 
 	go func() {
-		// Prepare 4 tasks.
-		names := []string{"Frank", "Luke", "Jacky", "Nango"}
-		ids := []string{}
+		// Prepare 2 tasks.
+		names := []string{"Frank", "Luke"}
 
 		for _, name := range names {
 			// Create a new task.
@@ -85,16 +89,39 @@ func ExampleTaskMan() {
 			}
 		}
 
-		// Stop first task after a timeout.
-		time.Sleep(time.Millisecond * 30)
+		timeout1 := time.After(time.Millisecond * 300)
+		timeout2 := time.After(time.Millisecond * 800)
 
-		if err := tm.Stop(ids[0]); err != nil {
-			log.Printf("stop task: %v error: %v", ids[0], err)
-			return
+		id := ids[0]
+		for {
+			select {
+			case <-timeout1:
+				// Stop 1st task after timeout.
+				if err := tm.Stop(id); err != nil {
+					log.Printf("stop task: %v error: %v", id, err)
+					return
+				}
+				log.Printf("stop task: %v successfully", id)
+
+			case state := <-chState:
+				// Resume 1st task after read STOPPED message from message channel.
+				// Get the state from the STOPPED message.
+				if err := tm.Run(id, state); err != nil {
+					log.Printf("Resume task: %v error: %v", id, err)
+					return
+				}
+				log.Printf("Resume task: %v successfully", id)
+
+			case <-timeout2:
+				// Stop all tasks after timeout.
+				tm.StopAll()
+				log.Printf("stop all tasks")
+				return
+			}
 		}
-		log.Printf("stop task: %v successfully", ids[0])
 	}()
 
+	// Message handler
 	for {
 		select {
 		case m := <-ch:
@@ -107,22 +134,11 @@ func ExampleTaskMan() {
 				log.Printf("task: %v started", m.TaskID)
 			case taskman.STOPPED:
 				log.Printf("task: %v stopped", m.TaskID)
-				// Update the task.
-				id := m.TaskID
-				t := &MyTask{"Capt"}
-				if err := tm.Update(id, t); err != nil {
-					log.Printf("update task: %v error: %v", id, err)
-					return
-				}
-				log.Printf("update task: %v successfully", id)
-
-				// Resume task with state.
+				// Get the task's state and post it to another goroutine.
 				state, _ := m.Data.([]byte)
-				if err := tm.Run(id, state); err != nil {
-					log.Printf("Resume task: %v error: %v", id, err)
-					return
-				}
-				log.Printf("Resume task: %v successfully", m.TaskID)
+				go func() {
+					chState <- state
+				}()
 
 			case taskman.DONE:
 				log.Printf("task: %v done", m.TaskID)
