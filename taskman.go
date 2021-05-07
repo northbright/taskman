@@ -46,6 +46,12 @@ func New(ctx context.Context, concurrency int) (*TaskMan, <-chan Message) {
 	return tm, tm.ch
 }
 
+func (tm *TaskMan) postMessage(m Message) {
+	go func() {
+		tm.ch <- m
+	}()
+}
+
 func (tm *TaskMan) Add(t Task) (string, error) {
 	tm.muOp.Lock()
 	defer tm.muOp.Unlock()
@@ -130,7 +136,7 @@ func run(ctx context.Context, id string, state []byte, tm *TaskMan, t Task) {
 
 	defer func() {
 		<-tm.sem
-		tm.ch <- newMessage(id, EXITED, nil)
+		tm.postMessage(newMessage(id, EXITED, nil))
 		close(chProgress)
 	}()
 
@@ -143,32 +149,32 @@ func run(ctx context.Context, id string, state []byte, tm *TaskMan, t Task) {
 					// End the loop to make goroutine exit.
 					return
 				}
-				tm.ch <- newMessage(id, PROGRESS_UPDATED, p)
+				tm.postMessage(newMessage(id, PROGRESS_UPDATED, p))
 			}
 		}
 	}()
 
-	tm.ch <- newMessage(id, SCHEDULED, nil)
+	tm.postMessage(newMessage(id, SCHEDULED, nil))
 	// Block until other task is done.
 	tm.sem <- struct{}{}
-	tm.ch <- newMessage(id, STARTED, nil)
+	tm.postMessage(newMessage(id, STARTED, nil))
 
 	newState, err := t.Run(ctx, state, chProgress)
 	if err != nil {
 		// Ignore the errors of ctx.Err() after <- ctx.Done():
 		if err != context.Canceled && err != context.DeadlineExceeded {
-			tm.ch <- newMessage(id, ERROR, err)
+			tm.postMessage(newMessage(id, ERROR, err))
 		}
 
-		tm.ch <- newMessage(id, STOPPED, newState)
+		tm.postMessage(newMessage(id, STOPPED, newState))
 	} else {
-		tm.ch <- newMessage(id, DONE, newState)
+		tm.postMessage(newMessage(id, DONE, newState))
 	}
 
 	tm.muMap.Lock()
 	delete(tm.cancelFuncs, id)
 	if len(tm.cancelFuncs) == 0 {
-		tm.ch <- newMessage("", ALL_EXITED, nil)
+		tm.postMessage(newMessage("", ALL_EXITED, nil))
 	}
 	close(tm.exitChannels[id])
 	tm.muMap.Unlock()
@@ -209,6 +215,28 @@ func (tm *TaskMan) stop(id string) error {
 
 	// Block until run() exit and close the exit channel.
 	_, ok = <-chExit
+
+	return nil
+}
+
+func (tm *TaskMan) StopAll() error {
+	tm.muOp.Lock()
+	defer tm.muOp.Unlock()
+
+	ids := []string{}
+
+	// Copy task IDs.
+	tm.muMap.Lock()
+	for id, _ := range tm.tasks {
+		ids = append(ids, id)
+	}
+	tm.muMap.Unlock()
+
+	for _, id := range ids {
+		if err := tm.stop(id); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }

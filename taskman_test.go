@@ -56,13 +56,14 @@ func ExampleTaskMan() {
 	tm, ch := taskman.New(context.Background(), 2)
 
 	go func() {
-		names := []string{"Frank", "Luke"}
+		names := []string{"Frank", "Luke", "Jacky", "Nango"}
 		ids := []string{}
 
 		for _, name := range names {
-			// Add task
+			// Create a new task.
 			t := &MyTask{name}
-			log.Printf("t address: %p", t)
+
+			// Add task.
 			id, err := tm.Add(t)
 			if err != nil {
 				log.Printf("add task error: %v", err)
@@ -70,16 +71,16 @@ func ExampleTaskMan() {
 			}
 			ids = append(ids, id)
 
-			// Run task
+			// Run task.
 			if err = tm.Run(id, nil); err != nil {
 				log.Printf("run task: %v error: %v", id, err)
 				return
 			}
 		}
 
+		// Stop first task after a timeout.
 		time.Sleep(time.Millisecond * 30)
 
-		// Stop first task
 		if err := tm.Stop(ids[0]); err != nil {
 			log.Printf("stop task: %v error: %v", ids[0], err)
 			return
