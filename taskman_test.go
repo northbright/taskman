@@ -10,18 +10,24 @@ import (
 	"github.com/northbright/taskman"
 )
 
+// MyTask implements taskman.Task interface:
+// UniqueChecksum() []byte
+// Run(ctx context.Context, state []byte, chProgress chan<- int) ([]byte, error)
 type MyTask struct {
 	Name string
 }
 
+// UniqueChecksum returns the unique checksum to identify the task in the taskman.
 func (t *MyTask) UniqueChecksum() []byte {
+	// Return the byte slice of the name as checksum.
 	return []byte(t.Name)
 }
 
+// Run does the real work.
 func (t *MyTask) Run(ctx context.Context, state []byte, chProgress chan<- int) ([]byte, error) {
-	i := 0
+	i := 1
 
-	// Load state if need.
+	// Load state to resume the task.
 	// Convert state to percentage.
 	if state != nil {
 		i, _ = strconv.Atoi(string(state))
@@ -38,7 +44,6 @@ func (t *MyTask) Run(ctx context.Context, state []byte, chProgress chan<- int) (
 		default:
 			if i <= 100 {
 				log.Printf("Hello, %v", t.Name)
-
 				// Send percentage to progress channel.
 				chProgress <- i
 
@@ -53,9 +58,11 @@ func (t *MyTask) Run(ctx context.Context, state []byte, chProgress chan<- int) (
 }
 
 func ExampleTaskMan() {
+	// Create a task manager which may run 2 tasks at the same time.
 	tm, ch := taskman.New(context.Background(), 2)
 
 	go func() {
+		// Prepare 4 tasks.
 		names := []string{"Frank", "Luke", "Jacky", "Nango"}
 		ids := []string{}
 
@@ -63,7 +70,7 @@ func ExampleTaskMan() {
 			// Create a new task.
 			t := &MyTask{name}
 
-			// Add task.
+			// Add the task.
 			id, err := tm.Add(t)
 			if err != nil {
 				log.Printf("add task error: %v", err)
@@ -71,7 +78,7 @@ func ExampleTaskMan() {
 			}
 			ids = append(ids, id)
 
-			// Run task.
+			// Run the task.
 			if err = tm.Run(id, nil); err != nil {
 				log.Printf("run task: %v error: %v", id, err)
 				return
