@@ -1,15 +1,15 @@
 package taskman
 
 import (
-	"bytes"
-	"context"
+	//"bytes"
+	//"context"
 	"errors"
 	//"log"
 	"sync"
-
-	"github.com/northbright/uuid"
+	"sync/atomic"
 )
 
+/*
 type TaskMan struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -253,4 +253,69 @@ func (tm *TaskMan) Delete(id string) error {
 	tm.muMap.Unlock()
 
 	return nil
+}
+*/
+
+var (
+	taskMans   = make(map[string]func(data []byte) Task)
+	taskMansMu = &sync.RWMutex{}
+
+	errNoSuchTaskName = errors.New("no such task name")
+)
+
+type TaskMan struct {
+	name    string
+	newTask func(data []byte) Task
+	tasks   map[uint64]Task
+	tasksMu *sync.RWMutex
+	maxID   uint64
+	total   uint64
+	chMsg   chan Message
+}
+
+func Register(name string, f func(data []byte) Task) {
+	if _, ok := taskMans[name]; ok {
+		panic("taskman: Register twice for: " + name)
+	}
+
+	taskMansMu.Lock()
+	taskMans[name] = f
+	taskMansMu.Unlock()
+}
+
+func New(name string) (*TaskMan, error) {
+	taskMansMu.RLock()
+	_, ok := taskMans[name]
+	taskMansMu.RUnlock()
+	if !ok {
+		return nil, errNoSuchTaskName
+	}
+
+	tm := &TaskMan{
+		name:    name,
+		newTask: taskMans[name],
+		tasks:   make(map[uint64]Task),
+		tasksMu: &sync.RWMutex{},
+		maxID:   0,
+		total:   0,
+		chMsg:   make(chan Message),
+	}
+
+	return tm, nil
+}
+
+func (tm *TaskMan) Add(data []byte) (uint64, error) {
+	t := tm.newTask(data)
+
+	id := atomic.AddUint64(&tm.maxID, 1)
+	tm.tasksMu.Lock()
+	tm.tasks[id] = t
+	tm.tasksMu.Unlock()
+
+	pt, ok := t.(ProgressiveTask)
+	if ok {
+		atomic.AddUint64(&tm.total, pt.Total())
+	}
+
+	return id, nil
 }
