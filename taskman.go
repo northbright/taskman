@@ -2,9 +2,10 @@ package taskman
 
 import (
 	//"bytes"
-	//"context"
+	"context"
 	"errors"
 	//"log"
+	"runtime"
 	"sync"
 	"sync/atomic"
 )
@@ -28,8 +29,8 @@ type TaskMan struct {
 
 var (
 	ErrTaskExists    = errors.New("task already exists")
-	ErrTaskNotFound  = errors.New("task not found")
-	ErrTaskIsRunning = errors.New("task is running")
+	TaskNotFoundErr  = errors.New("task not found")
+	TaskIsRunningErr = errors.New("task is running")
 )
 
 func New(concurrency int) (*TaskMan, <-chan Message) {
@@ -87,7 +88,7 @@ func (tm *TaskMan) Update(id string, t Task) error {
 	tm.muMap.Unlock()
 
 	if !ok {
-		return ErrTaskNotFound
+		return TaskNotFoundErr
 	}
 
 	tm.muMap.Lock()
@@ -95,7 +96,7 @@ func (tm *TaskMan) Update(id string, t Task) error {
 	tm.muMap.Unlock()
 
 	if ok {
-		return ErrTaskIsRunning
+		return TaskIsRunningErr
 	}
 
 	tm.muMap.Lock()
@@ -114,7 +115,7 @@ func (tm *TaskMan) Run(id string, state []byte) error {
 	tm.muMap.Unlock()
 
 	if !ok {
-		return ErrTaskNotFound
+		return TaskNotFoundErr
 	}
 
 	tm.muMap.Lock()
@@ -122,7 +123,7 @@ func (tm *TaskMan) Run(id string, state []byte) error {
 	tm.muMap.Unlock()
 
 	if ok {
-		return ErrTaskIsRunning
+		return TaskIsRunningErr
 	}
 
 	ctx, cancel := context.WithCancel(tm.ctx)
@@ -201,7 +202,7 @@ func (tm *TaskMan) stop(id string) error {
 	tm.muMap.Unlock()
 
 	if !ok {
-		return ErrTaskNotFound
+		return TaskNotFoundErr
 	}
 
 	tm.muMap.Lock()
@@ -214,7 +215,7 @@ func (tm *TaskMan) stop(id string) error {
 
 	// Get the exit signal channel for the id.
 	tm.muMap.Lock()
-	chExited, ok := tm.exitedChannels[id]
+	exitedChed, ok := tm.exitedChannels[id]
 	tm.muMap.Unlock()
 
 	if !ok {
@@ -222,7 +223,7 @@ func (tm *TaskMan) stop(id string) error {
 	}
 
 	// Block until run() exit and close the exited channel.
-	<-chExited
+	<-exitedChed
 
 	return nil
 }
@@ -260,17 +261,32 @@ var (
 	taskMans   = make(map[string]func(data []byte) Task)
 	taskMansMu = &sync.RWMutex{}
 
-	errNoSuchTaskName = errors.New("no such task name")
+	NoSuchTaskNameErr = errors.New("no such task name")
+	TaskNotFoundErr   = errors.New("task not found")
+	TaskIsRunningErr  = errors.New("task is running")
 )
 
+type TaskData struct {
+	task        Task
+	ctx         context.Context
+	cancelFunc  context.CancelFunc
+	pausedCh    chan bool
+	exitedCh    chan struct{}
+	showPercent bool
+	total       int64
+}
+
 type TaskMan struct {
-	name    string
-	newTask func(data []byte) Task
-	tasks   map[uint64]Task
-	tasksMu *sync.RWMutex
-	maxID   uint64
-	total   uint64
-	chMsg   chan Message
+	ctx         context.Context
+	name        string
+	concurrency int
+	newTask     func(data []byte) Task
+	taskDatas   map[int64]*TaskData
+	taskDatasMu *sync.RWMutex
+	maxID       int64
+	total       int64
+	sem         chan struct{}
+	msgCh       chan Message
 }
 
 func Register(name string, f func(data []byte) Task) {
@@ -283,39 +299,149 @@ func Register(name string, f func(data []byte) Task) {
 	taskMansMu.Unlock()
 }
 
-func New(name string) (*TaskMan, error) {
+func New(name string, concurrency int) (*TaskMan, <-chan Message, error) {
 	taskMansMu.RLock()
 	_, ok := taskMans[name]
 	taskMansMu.RUnlock()
 	if !ok {
-		return nil, errNoSuchTaskName
+		return nil, nil, NoSuchTaskNameErr
 	}
 
 	tm := &TaskMan{
-		name:    name,
-		newTask: taskMans[name],
-		tasks:   make(map[uint64]Task),
-		tasksMu: &sync.RWMutex{},
-		maxID:   0,
-		total:   0,
-		chMsg:   make(chan Message),
+		ctx:         context.Background(),
+		name:        name,
+		concurrency: concurrency,
+		newTask:     taskMans[name],
+		taskDatas:   make(map[int64]*TaskData),
+		taskDatasMu: &sync.RWMutex{},
+		maxID:       0,
+		total:       0,
+		sem:         make(chan struct{}, concurrency),
+		msgCh:       make(chan Message),
 	}
 
-	return tm, nil
+	return tm, tm.msgCh, nil
 }
 
-func (tm *TaskMan) Add(data []byte) (uint64, error) {
+func (tm *TaskMan) MsgCh() <-chan Message {
+	return tm.msgCh
+}
+
+func (tm *TaskMan) Add(data []byte) (int64, error) {
 	t := tm.newTask(data)
 
-	id := atomic.AddUint64(&tm.maxID, 1)
-	tm.tasksMu.Lock()
-	tm.tasks[id] = t
-	tm.tasksMu.Unlock()
-
-	pt, ok := t.(ProgressiveTask)
+	var total int64
+	spt, ok := t.(ShowPercentTask)
 	if ok {
-		atomic.AddUint64(&tm.total, pt.Total())
+		total = spt.Total()
+		atomic.AddInt64(&tm.total, total)
 	}
 
+	id := atomic.AddInt64(&tm.maxID, 1)
+	tm.taskDatasMu.Lock()
+	td := &TaskData{
+		task:        t,
+		ctx:         nil,
+		cancelFunc:  nil,
+		pausedCh:    nil,
+		exitedCh:    nil,
+		showPercent: ok,
+		total:       total,
+	}
+	tm.taskDatas[id] = td
+	tm.taskDatasMu.Unlock()
+
 	return id, nil
+}
+
+func (tm *TaskMan) Start(id int64) error {
+	tm.taskDatasMu.RLock()
+	td, ok := tm.taskDatas[id]
+	tm.taskDatasMu.RUnlock()
+
+	if !ok {
+		return TaskNotFoundErr
+	}
+
+	if td.cancelFunc != nil {
+		return TaskIsRunningErr
+	}
+
+	ctx, cancelFunc := context.WithCancel(tm.ctx)
+
+	tm.taskDatasMu.Lock()
+	tm.taskDatas[id].cancelFunc = cancelFunc
+	tm.taskDatas[id].pausedCh = make(chan bool)
+	tm.taskDatas[id].exitedCh = make(chan struct{})
+	tm.taskDatasMu.Unlock()
+
+	go func() {
+		tm.run(ctx, id, td)
+	}()
+	return nil
+}
+
+func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData) {
+	tm.msgCh <- newMessage(id, SCHEDULED, nil)
+
+	tm.sem <- struct{}{}
+	defer func() {
+		<-tm.sem
+		tm.msgCh <- newMessage(id, EXITED, nil)
+	}()
+
+	var (
+		paused  bool
+		percent float64
+	)
+
+	tm.msgCh <- newMessage(id, STARTED, nil)
+
+	for {
+		select {
+		case <-ctx.Done():
+			tm.msgCh <- newMessage(id, STOPPED, nil)
+			return
+		case paused = <-td.pausedCh:
+		default:
+			runtime.Gosched()
+
+			if !paused {
+				current, done, err := td.task.Step()
+				if err != nil {
+					tm.msgCh <- newMessage(id, ERROR, err)
+					return
+				}
+
+				if td.showPercent {
+					if td.total > 0 {
+						newPercent := computePercent(current, td.total)
+						if newPercent != percent {
+							percent = newPercent
+
+							tm.msgCh <- newMessage(id, PROGRESS_UPDATED, int(percent))
+						}
+					}
+				}
+
+				if done {
+					state, err := td.task.MarshalBinary()
+					if err != nil {
+						tm.msgCh <- newMessage(id, ERROR, err)
+						return
+					}
+
+					tm.msgCh <- newMessage(id, DONE, state)
+					return
+				}
+			}
+		}
+	}
+}
+
+func computePercent(current, total int64) float64 {
+	if total > 0 {
+		return float64(current) / (float64(total) / float64(100))
+	}
+	return 0
 }

@@ -50,7 +50,7 @@ var (
 type Message struct {
 	// Task ID
 	// Ignored for ALL_EXITED type.
-	TaskID string `json:"task_id"`
+	TaskID int64 `json:"task_id"`
 	// Type is the type code(uint) of message.
 	Type MessageType `json:"type"`
 	// TypeStr is the type in string.
@@ -70,7 +70,7 @@ type Message struct {
 }
 
 // newMessage returns a new message.
-func newMessage(id string, t MessageType, data interface{}) Message {
+func newMessage(id int64, t MessageType, data interface{}) Message {
 	typeStr, ok := messageTypeStrs[t]
 	if !ok {
 		t = UNKNOWN

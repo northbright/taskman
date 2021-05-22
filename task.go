@@ -22,9 +22,9 @@ type Task interface {
 type Task interface {
 	encoding.BinaryMarshaler
 	encoding.BinaryUnmarshaler
-	Step() (uint64, bool, error)
+	Step() (int64, bool, error)
 }
 
-type ProgressiveTask interface {
-	Total() uint64
+type ShowPercentTask interface {
+	Total() int64
 }

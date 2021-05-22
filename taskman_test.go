@@ -1,15 +1,16 @@
 package taskman_test
 
 import (
-	"context"
-	"fmt"
+	//"context"
+	//"fmt"
 	"log"
-	"strconv"
+	//"strconv"
 	"time"
 
 	"github.com/northbright/taskman"
 )
 
+/*
 // MyTask implements taskman.Task interface:
 // UniqueChecksum() []byte
 // Run(ctx context.Context, state []byte, chProgress chan<- int) ([]byte, error)
@@ -153,6 +154,98 @@ func ExampleTaskMan() {
 			}
 		}
 	}
+
+	// Output:
+}
+*/
+
+type MyTask struct {
+	total   int64
+	current int64
+}
+
+func (t *MyTask) MarshalBinary() ([]byte, error) {
+	return nil, nil
+}
+
+func (t *MyTask) UnmarshalBinary(state []byte) error {
+	return nil
+}
+
+func (t *MyTask) Step() (int64, bool, error) {
+	if t.current < t.total {
+		t.current++
+	}
+
+	time.Sleep(time.Millisecond * 10)
+
+	done := false
+	if t.current == t.total {
+		done = true
+	}
+
+	return t.current, done, nil
+}
+
+func (t *MyTask) Total() int64 {
+	return t.total
+}
+
+func init() {
+	taskman.Register("MyTask", func(data []byte) taskman.Task {
+		return &MyTask{
+			total:   100,
+			current: 0,
+		}
+	})
+}
+
+func ExampleTaskMan() {
+
+	concurrency := 1
+	tm, ch, _ := taskman.New("MyTask", concurrency)
+
+	go func() {
+		for {
+			select {
+			case m := <-ch:
+				switch m.Type {
+				case taskman.ERROR:
+					log.Printf("task: %v error: %v", m.TaskID, m.Data.(string))
+				case taskman.SCHEDULED:
+					log.Printf("task: %v scheduled", m.TaskID)
+				case taskman.STARTED:
+					log.Printf("task: %v started", m.TaskID)
+				case taskman.STOPPED:
+					log.Printf("task: %v stopped", m.TaskID)
+				case taskman.DONE:
+					log.Printf("task: %v done", m.TaskID)
+				case taskman.EXITED:
+					log.Printf("task: %v exited", m.TaskID)
+				case taskman.ALL_EXITED:
+					log.Printf("all tasks exited")
+					return
+				case taskman.PROGRESS_UPDATED:
+					p, _ := m.Data.(int)
+					log.Printf("task: %v, progress: %v", m.TaskID, p)
+				}
+
+			}
+		}
+	}()
+
+	id, err := tm.Add([]byte{})
+	if err != nil {
+		log.Printf("add task error: %v", err)
+		return
+	}
+
+	if err = tm.Start(id); err != nil {
+		log.Printf("start task error: %v", err)
+		return
+	}
+
+	<-time.After(time.Second * 5)
 
 	// Output:
 }
