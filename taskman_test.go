@@ -5,6 +5,7 @@ import (
 	//"fmt"
 	"log"
 	//"strconv"
+	"encoding/json"
 	"time"
 
 	"github.com/northbright/taskman"
@@ -161,30 +162,30 @@ func ExampleTaskMan() {
 
 type MyTask struct {
 	total   int64
-	current int64
+	Current int64 `json:"current"`
 }
 
 func (t *MyTask) MarshalBinary() ([]byte, error) {
-	return nil, nil
+	return json.Marshal(t)
 }
 
 func (t *MyTask) UnmarshalBinary(state []byte) error {
-	return nil
+	return json.Unmarshal(state, t)
 }
 
 func (t *MyTask) Step() (int64, bool, error) {
-	if t.current < t.total {
-		t.current++
+	if t.Current < t.total {
+		t.Current++
 	}
 
 	time.Sleep(time.Millisecond * 10)
 
 	done := false
-	if t.current == t.total {
+	if t.Current == t.total {
 		done = true
 	}
 
-	return t.current, done, nil
+	return t.Current, done, nil
 }
 
 func (t *MyTask) Total() int64 {
@@ -195,7 +196,7 @@ func init() {
 	taskman.Register("MyTask", func(data []byte) taskman.Task {
 		return &MyTask{
 			total:   100,
-			current: 0,
+			Current: 0,
 		}
 	})
 }
@@ -218,6 +219,8 @@ func ExampleTaskMan() {
 					log.Printf("task: %v started", m.TaskID)
 				case taskman.STOPPED:
 					log.Printf("task: %v stopped", m.TaskID)
+					data, _ := m.Data.([]byte)
+					log.Printf("saved state: %s", string(data))
 				case taskman.DONE:
 					log.Printf("task: %v done", m.TaskID)
 				case taskman.EXITED:
