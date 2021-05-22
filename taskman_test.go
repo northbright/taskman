@@ -245,9 +245,17 @@ func ExampleTaskMan() {
 		return
 	}
 
+	// Start same task twice.
 	<-time.After(time.Millisecond * 10)
 	if err = tm.Start(id); err != nil {
 		log.Printf("start task %v again error: %v", id, err)
+	}
+
+	// Stop task.
+	<-time.After(time.Millisecond * 100)
+	if err = tm.Stop(id); err != nil {
+		log.Printf("stop task %v error: %v", id, err)
+		return
 	}
 
 	<-time.After(time.Second * 5)

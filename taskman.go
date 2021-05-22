@@ -403,7 +403,13 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData) {
 	for {
 		select {
 		case <-ctx.Done():
-			tm.msgCh <- newMessage(id, STOPPED, nil)
+			state, err := td.task.MarshalBinary()
+			if err != nil {
+				tm.msgCh <- newMessage(id, ERROR, err)
+				return
+			}
+
+			tm.msgCh <- newMessage(id, STOPPED, state)
 			return
 		case paused = <-td.pausedCh:
 		default:
@@ -447,4 +453,20 @@ func computePercent(current, total int64) float64 {
 		return float64(current) / (float64(total) / float64(100))
 	}
 	return 0
+}
+
+func (tm *TaskMan) Stop(id int64) error {
+	tm.taskDatasMu.RLock()
+	td, ok := tm.taskDatas[id]
+	tm.taskDatasMu.RUnlock()
+
+	if !ok {
+		return TaskNotFoundErr
+	}
+
+	if td.cancelFunc != nil {
+		td.cancelFunc()
+	}
+
+	return nil
 }
