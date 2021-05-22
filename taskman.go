@@ -387,6 +387,9 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData) {
 	tm.sem <- struct{}{}
 	defer func() {
 		<-tm.sem
+		tm.taskDatasMu.Lock()
+		tm.taskDatas[id].cancelFunc = nil
+		tm.taskDatasMu.Unlock()
 		tm.msgCh <- newMessage(id, EXITED, nil)
 	}()
 

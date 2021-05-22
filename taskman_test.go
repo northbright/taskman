@@ -241,8 +241,13 @@ func ExampleTaskMan() {
 	}
 
 	if err = tm.Start(id); err != nil {
-		log.Printf("start task error: %v", err)
+		log.Printf("start task %v error: %v", id, err)
 		return
+	}
+
+	<-time.After(time.Millisecond * 10)
+	if err = tm.Start(id); err != nil {
+		log.Printf("start task %v again error: %v", id, err)
 	}
 
 	<-time.After(time.Second * 5)
