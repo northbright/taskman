@@ -257,6 +257,10 @@ func (tm *TaskMan) Delete(id string) error {
 }
 */
 
+const (
+	DefConcurrency = 16
+)
+
 var (
 	taskMans   = make(map[string]func(data []byte) Task)
 	taskMansMu = &sync.RWMutex{}
@@ -305,6 +309,10 @@ func New(name string, concurrency int) (*TaskMan, <-chan Message, error) {
 	taskMansMu.RUnlock()
 	if !ok {
 		return nil, nil, NoSuchTaskNameErr
+	}
+
+	if concurrency <= 0 {
+		concurrency = DefConcurrency
 	}
 
 	tm := &TaskMan{
