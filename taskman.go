@@ -268,16 +268,18 @@ var (
 	NoSuchTaskNameErr = errors.New("no such task name")
 	TaskNotFoundErr   = errors.New("task not found")
 	TaskIsRunningErr  = errors.New("task is running")
+	TaskIsStoppedErr  = errors.New("task is stopped")
 )
 
 type TaskData struct {
-	task        Task
-	ctx         context.Context
-	cancelFunc  context.CancelFunc
-	pausedCh    chan bool
-	exitedCh    chan struct{}
-	showPercent bool
-	total       int64
+	task         Task
+	ctx          context.Context
+	cancelFunc   context.CancelFunc
+	cancelFuncMu *sync.RWMutex
+	suspended    bool
+	suspendedMu  *sync.RWMutex
+	showPercent  bool
+	total        int64
 }
 
 type TaskMan struct {
@@ -348,13 +350,14 @@ func (tm *TaskMan) Add(data []byte) (int64, error) {
 	id := atomic.AddInt64(&tm.maxID, 1)
 	tm.taskDatasMu.Lock()
 	td := &TaskData{
-		task:        t,
-		ctx:         nil,
-		cancelFunc:  nil,
-		pausedCh:    nil,
-		exitedCh:    nil,
-		showPercent: ok,
-		total:       total,
+		task:         t,
+		ctx:          nil,
+		cancelFunc:   nil,
+		cancelFuncMu: &sync.RWMutex{},
+		suspended:    true,
+		suspendedMu:  &sync.RWMutex{},
+		showPercent:  ok,
+		total:        total,
 	}
 	tm.taskDatas[id] = td
 	tm.taskDatasMu.Unlock()
@@ -363,10 +366,10 @@ func (tm *TaskMan) Add(data []byte) (int64, error) {
 }
 
 func (tm *TaskMan) Start(id int64) error {
-	tm.taskDatasMu.RLock()
-	td, ok := tm.taskDatas[id]
-	tm.taskDatasMu.RUnlock()
+	tm.taskDatasMu.Lock()
+	defer tm.taskDatasMu.Unlock()
 
+	td, ok := tm.taskDatas[id]
 	if !ok {
 		return TaskNotFoundErr
 	}
@@ -377,15 +380,18 @@ func (tm *TaskMan) Start(id int64) error {
 
 	ctx, cancelFunc := context.WithCancel(tm.ctx)
 
-	tm.taskDatasMu.Lock()
-	tm.taskDatas[id].cancelFunc = cancelFunc
-	tm.taskDatas[id].pausedCh = make(chan bool)
-	tm.taskDatas[id].exitedCh = make(chan struct{})
-	tm.taskDatasMu.Unlock()
+	td.cancelFuncMu.Lock()
+	td.cancelFunc = cancelFunc
+	td.cancelFuncMu.Unlock()
+
+	td.suspendedMu.Lock()
+	td.suspended = false
+	td.suspendedMu.Unlock()
 
 	go func() {
 		tm.run(ctx, id, td)
 	}()
+
 	return nil
 }
 
@@ -395,15 +401,16 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData) {
 	tm.sem <- struct{}{}
 	defer func() {
 		<-tm.sem
-		tm.taskDatasMu.Lock()
-		tm.taskDatas[id].cancelFunc = nil
-		tm.taskDatasMu.Unlock()
+		td.cancelFuncMu.Lock()
+		td.cancelFunc = nil
+		td.cancelFuncMu.Unlock()
+
 		tm.msgCh <- newMessage(id, EXITED, nil)
 	}()
 
 	var (
-		paused  bool
-		percent float64
+		suspended bool
+		percent   float64
 	)
 
 	tm.msgCh <- newMessage(id, STARTED, nil)
@@ -419,11 +426,22 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData) {
 
 			tm.msgCh <- newMessage(id, STOPPED, state)
 			return
-		case paused = <-td.pausedCh:
+
 		default:
 			runtime.Gosched()
 
-			if !paused {
+			td.suspendedMu.RLock()
+			if suspended != td.suspended {
+				suspended = td.suspended
+				if suspended {
+					tm.msgCh <- newMessage(id, SUSPENDED, nil)
+				} else {
+					tm.msgCh <- newMessage(id, RESUMED, nil)
+				}
+			}
+			td.suspendedMu.RUnlock()
+
+			if !suspended {
 				current, done, err := td.task.Step()
 				if err != nil {
 					tm.msgCh <- newMessage(id, ERROR, err)
@@ -465,16 +483,54 @@ func computePercent(current, total int64) float64 {
 
 func (tm *TaskMan) Stop(id int64) error {
 	tm.taskDatasMu.RLock()
+	defer tm.taskDatasMu.RUnlock()
+
 	td, ok := tm.taskDatas[id]
-	tm.taskDatasMu.RUnlock()
 
 	if !ok {
 		return TaskNotFoundErr
 	}
 
+	td.cancelFuncMu.RLock()
 	if td.cancelFunc != nil {
 		td.cancelFunc()
 	}
+	td.cancelFuncMu.RUnlock()
 
 	return nil
+}
+
+func (tm *TaskMan) setSuspendStatus(id int64, suspended bool) error {
+	tm.taskDatasMu.RLock()
+	defer tm.taskDatasMu.RUnlock()
+
+	td, ok := tm.taskDatas[id]
+
+	if !ok {
+		return TaskNotFoundErr
+	}
+
+	if td.cancelFunc == nil {
+		return TaskIsStoppedErr
+	}
+
+	td.setSuspendStatus(suspended)
+
+	return nil
+}
+
+func (tm *TaskMan) Suspend(id int64) error {
+	return tm.setSuspendStatus(id, true)
+}
+
+func (tm *TaskMan) Resume(id int64) error {
+	return tm.setSuspendStatus(id, false)
+}
+
+func (td *TaskData) setSuspendStatus(suspended bool) {
+	td.suspendedMu.Lock()
+	if td.suspended != suspended {
+		td.suspended = suspended
+	}
+	td.suspendedMu.Unlock()
 }

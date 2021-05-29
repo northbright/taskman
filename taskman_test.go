@@ -221,6 +221,10 @@ func ExampleTaskMan() {
 					log.Printf("task: %v stopped", m.TaskID)
 					data, _ := m.Data.([]byte)
 					log.Printf("saved state: %s", string(data))
+				case taskman.SUSPENDED:
+					log.Printf("task %v suspended", m.TaskID)
+				case taskman.RESUMED:
+					log.Printf("task %v resumed", m.TaskID)
 				case taskman.DONE:
 					log.Printf("task: %v done", m.TaskID)
 				case taskman.EXITED:
@@ -252,6 +256,20 @@ func ExampleTaskMan() {
 	<-time.After(time.Millisecond * 10)
 	if err = tm.Start(id); err != nil {
 		log.Printf("start task %v again error: %v", id, err)
+	}
+
+	// Suspend task.
+	<-time.After(time.Millisecond * 200)
+	if err = tm.Suspend(id); err != nil {
+		log.Printf("suspend task %v error: %v", id, err)
+		return
+	}
+
+	// Resume task.
+	<-time.After(time.Millisecond * 1000)
+	if err = tm.Resume(id); err != nil {
+		log.Printf("resume task %v error: %v", id, err)
+		return
 	}
 
 	// Stop task.

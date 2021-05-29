@@ -18,6 +18,12 @@ const (
 	STARTED
 	// Task is stopped.
 	STOPPED
+	// Task is restored.
+	RESTORED
+	// Task is suspended.
+	SUSPENDED
+	// Task is resumed.
+	RESUMED
 	// Progress of task is updated.
 	PROGRESS_UPDATED
 	// Task is done.
@@ -38,6 +44,9 @@ var (
 		SCHEDULED:        "scheduled",
 		STARTED:          "started",
 		STOPPED:          "stopped",
+		RESTORED:         "restored",
+		SUSPENDED:        "suspended",
+		RESUMED:          "resumed",
 		PROGRESS_UPDATED: "progress_updated",
 		EXITED:           "exited",
 		ALL_EXITED:       "all_exited",
