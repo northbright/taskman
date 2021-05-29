@@ -205,6 +205,7 @@ func ExampleTaskMan() {
 
 	concurrency := 1
 	tm, ch, _ := taskman.New("MyTask", concurrency)
+	stateCh := make(chan []byte)
 
 	go func() {
 		for {
@@ -219,8 +220,14 @@ func ExampleTaskMan() {
 					log.Printf("task: %v started", m.TaskID)
 				case taskman.STOPPED:
 					log.Printf("task: %v stopped", m.TaskID)
-					data, _ := m.Data.([]byte)
-					log.Printf("saved state: %s", string(data))
+					state, _ := m.Data.([]byte)
+					log.Printf("saved state: %s", string(state))
+					stateCh <- state
+				case taskman.RESTORED:
+					log.Printf("task: %v restored", m.TaskID)
+					state, _ := m.Data.([]byte)
+					log.Printf("restored state: %s", string(state))
+
 				case taskman.SUSPENDED:
 					log.Printf("task %v suspended", m.TaskID)
 				case taskman.RESUMED:
@@ -247,14 +254,14 @@ func ExampleTaskMan() {
 		return
 	}
 
-	if err = tm.Start(id); err != nil {
+	if err = tm.Start(id, nil); err != nil {
 		log.Printf("start task %v error: %v", id, err)
 		return
 	}
 
 	// Start same task twice.
 	<-time.After(time.Millisecond * 10)
-	if err = tm.Start(id); err != nil {
+	if err = tm.Start(id, nil); err != nil {
 		log.Printf("start task %v again error: %v", id, err)
 	}
 
@@ -276,6 +283,13 @@ func ExampleTaskMan() {
 	<-time.After(time.Millisecond * 100)
 	if err = tm.Stop(id); err != nil {
 		log.Printf("stop task %v error: %v", id, err)
+		return
+	}
+
+	// Restore task.
+	state := <-stateCh
+	if err = tm.Start(id, state); err != nil {
+		log.Printf("restore task %v error: %v", id, err)
 		return
 	}
 

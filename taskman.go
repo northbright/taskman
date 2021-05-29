@@ -365,7 +365,7 @@ func (tm *TaskMan) Add(data []byte) (int64, error) {
 	return id, nil
 }
 
-func (tm *TaskMan) Start(id int64) error {
+func (tm *TaskMan) Start(id int64, state []byte) error {
 	tm.taskDatasMu.Lock()
 	defer tm.taskDatasMu.Unlock()
 
@@ -389,42 +389,59 @@ func (tm *TaskMan) Start(id int64) error {
 	td.suspendedMu.Unlock()
 
 	go func() {
-		tm.run(ctx, id, td)
+		tm.run(ctx, id, td, state)
 	}()
 
 	return nil
 }
 
-func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData) {
+func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData, state []byte) {
+	var (
+		err        error
+		savedState []byte
+		suspended  bool
+		percent    float64
+	)
+
 	tm.msgCh <- newMessage(id, SCHEDULED, nil)
 
 	tm.sem <- struct{}{}
+
 	defer func() {
 		<-tm.sem
+
 		td.cancelFuncMu.Lock()
 		td.cancelFunc = nil
 		td.cancelFuncMu.Unlock()
 
+		switch err {
+		case context.Canceled, context.DeadlineExceeded:
+			tm.msgCh <- newMessage(id, STOPPED, savedState)
+		case nil:
+			tm.msgCh <- newMessage(id, DONE, savedState)
+		default:
+			tm.msgCh <- newMessage(id, ERROR, err.Error())
+		}
+
 		tm.msgCh <- newMessage(id, EXITED, nil)
 	}()
 
-	var (
-		suspended bool
-		percent   float64
-	)
-
-	tm.msgCh <- newMessage(id, STARTED, nil)
+	if state != nil {
+		if err := td.task.UnmarshalBinary(state); err != nil {
+			return
+		}
+		tm.msgCh <- newMessage(id, RESTORED, state)
+	} else {
+		tm.msgCh <- newMessage(id, STARTED, nil)
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			state, err := td.task.MarshalBinary()
-			if err != nil {
-				tm.msgCh <- newMessage(id, ERROR, err)
+			if savedState, err = td.task.MarshalBinary(); err != nil {
 				return
 			}
-
-			tm.msgCh <- newMessage(id, STOPPED, state)
+			err = ctx.Err()
 			return
 
 		default:
@@ -444,7 +461,6 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData) {
 			if !suspended {
 				current, done, err := td.task.Step()
 				if err != nil {
-					tm.msgCh <- newMessage(id, ERROR, err)
 					return
 				}
 
@@ -460,13 +476,9 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData) {
 				}
 
 				if done {
-					state, err := td.task.MarshalBinary()
-					if err != nil {
-						tm.msgCh <- newMessage(id, ERROR, err)
+					if savedState, err = td.task.MarshalBinary(); err != nil {
 						return
 					}
-
-					tm.msgCh <- newMessage(id, DONE, state)
 					return
 				}
 			}

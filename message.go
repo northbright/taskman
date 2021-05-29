@@ -9,8 +9,7 @@ import (
 type MessageType uint
 
 const (
-	// An error occured.
-	// context.Canceled and context.DeadlineExceeded will not be treated as errors.
+	// An error occurs when task is running.
 	ERROR MessageType = iota
 	// Task is scheduled.
 	SCHEDULED
@@ -29,7 +28,6 @@ const (
 	// Task is done.
 	DONE
 	// Goroutine of the task exited.
-	// It's send after one of ERROR / STOPPED / DONE message.
 	EXITED
 	// All tasks exited.
 	ALL_EXITED
@@ -48,9 +46,9 @@ var (
 		SUSPENDED:        "suspended",
 		RESUMED:          "resumed",
 		PROGRESS_UPDATED: "progress_updated",
+		DONE:             "done",
 		EXITED:           "exited",
 		ALL_EXITED:       "all_exited",
-		DONE:             "done",
 		UNKNOWN:          "unknown",
 	}
 )
@@ -71,8 +69,11 @@ type Message struct {
 	// SCHEDULED: data is nil.
 	// STARTED: data is nil.
 	// STOPPED: data is []byte to store saved state.
+	// RESTORED: data is []byte to store restored state.
+	// SUSPENDED: data is nil.
+	// RESUMED: data is nil.
 	// PROGRESS_UPDATED: data is a int to store the percent(0 - 100).
-	// DONE: data is []byte to store the final state.
+	// DONE: data is []byte to store final saved state.
 	// EXITED: data is nil.
 	// ALL_EXITED: data is nil.
 	Data interface{} `json:"data,omitempty"`
