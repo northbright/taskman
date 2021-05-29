@@ -17,10 +17,12 @@ func init() {
 	taskman.Register("filehash", loadTask)
 }
 
-func loadTask(data []byte) taskman.Task {
+func loadTask(data []byte) (taskman.Task, error) {
 	t := &Task{}
-	json.Unmarshal(data, &t)
-	return t
+	if err := json.Unmarshal(data, &t); err != nil {
+		return nil, err
+	}
+	return t, nil
 }
 
 func (t *Task) MarshalBinary() ([]byte, error) {
