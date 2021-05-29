@@ -202,11 +202,14 @@ func init() {
 }
 
 func ExampleTaskMan() {
-
+	// Set concurrency.
 	concurrency := 1
+	// Create a new task manager.
 	tm, ch, _ := taskman.New("MyTask", concurrency)
+	// Create a channel to receive saved state.
 	stateCh := make(chan []byte)
 
+	// Start a new goroutine to handle the task messages.
 	go func() {
 		for {
 			select {
@@ -234,6 +237,8 @@ func ExampleTaskMan() {
 					log.Printf("task %v resumed", m.TaskID)
 				case taskman.DONE:
 					log.Printf("task: %v done", m.TaskID)
+					state, _ := m.Data.([]byte)
+					log.Printf("final saved state: %s", string(state))
 				case taskman.EXITED:
 					log.Printf("task: %v exited", m.TaskID)
 				case taskman.ALL_EXITED:
@@ -248,45 +253,48 @@ func ExampleTaskMan() {
 		}
 	}()
 
+	// Add a new task to task manager and get the task ID.
 	id, err := tm.Add([]byte{})
 	if err != nil {
 		log.Printf("add task error: %v", err)
 		return
 	}
 
+	// Start the task.
 	if err = tm.Start(id, nil); err != nil {
 		log.Printf("start task %v error: %v", id, err)
 		return
 	}
 
-	// Start same task twice.
+	// Start the same task twice.
 	<-time.After(time.Millisecond * 10)
 	if err = tm.Start(id, nil); err != nil {
 		log.Printf("start task %v again error: %v", id, err)
 	}
 
-	// Suspend task.
+	// Suspend the task.
 	<-time.After(time.Millisecond * 200)
 	if err = tm.Suspend(id); err != nil {
 		log.Printf("suspend task %v error: %v", id, err)
 		return
 	}
 
-	// Resume task.
+	// Resume the task.
 	<-time.After(time.Millisecond * 1000)
 	if err = tm.Resume(id); err != nil {
 		log.Printf("resume task %v error: %v", id, err)
 		return
 	}
 
-	// Stop task.
+	// Stop the task.
 	<-time.After(time.Millisecond * 100)
 	if err = tm.Stop(id); err != nil {
 		log.Printf("stop task %v error: %v", id, err)
 		return
 	}
 
-	// Restore task.
+	// Restore the task at once after stop it.
+	// It loads the saved state.
 	state := <-stateCh
 	if err = tm.Start(id, state); err != nil {
 		log.Printf("restore task %v error: %v", id, err)
