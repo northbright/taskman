@@ -1,7 +1,7 @@
 package taskman
 
 import (
-	//"context"
+	"context"
 	"encoding"
 )
 
@@ -22,6 +22,8 @@ type Task interface {
 type Task interface {
 	encoding.BinaryMarshaler
 	encoding.BinaryUnmarshaler
+	Init(ctx context.Context) error
+	Deinit(ctx context.Context) error
 	Step() (int64, bool, error)
 }
 

@@ -1,7 +1,7 @@
 package taskman_test
 
 import (
-	//"context"
+	"context"
 	//"fmt"
 	"log"
 	//"strconv"
@@ -161,6 +161,7 @@ func ExampleTaskMan() {
 */
 
 type MyTask struct {
+	name    string
 	total   int64
 	Current int64 `json:"current"`
 }
@@ -171,6 +172,15 @@ func (t *MyTask) MarshalBinary() ([]byte, error) {
 
 func (t *MyTask) UnmarshalBinary(state []byte) error {
 	return json.Unmarshal(state, t)
+}
+
+func (t *MyTask) Init(ctx context.Context) error {
+	return nil
+}
+
+func (t *MyTask) Deinit(ctx context.Context) error {
+	log.Printf("%v completed!", t.name)
+	return nil
 }
 
 func (t *MyTask) Step() (int64, bool, error) {
@@ -195,6 +205,7 @@ func (t *MyTask) Total() int64 {
 func init() {
 	taskman.Register("MyTask", func(data []byte) taskman.Task {
 		return &MyTask{
+			name:    string(data),
 			total:   100,
 			Current: 0,
 		}
@@ -202,6 +213,7 @@ func init() {
 }
 
 func ExampleTaskMan() {
+	var err error
 	// Set concurrency.
 	concurrency := 1
 	// Create a new task manager.
@@ -243,7 +255,6 @@ func ExampleTaskMan() {
 					log.Printf("task: %v exited", m.TaskID)
 				case taskman.ALL_EXITED:
 					log.Printf("all tasks exited")
-					return
 				case taskman.PROGRESS_UPDATED:
 					p, _ := m.Data.(int)
 					log.Printf("task: %v, progress: %v", m.TaskID, p)
@@ -253,51 +264,57 @@ func ExampleTaskMan() {
 		}
 	}()
 
-	// Add a new task to task manager and get the task ID.
-	id, err := tm.Add([]byte{})
-	if err != nil {
-		log.Printf("add task error: %v", err)
+	// Add first task to task manager and get the task ID.
+	id1, _ := tm.Add([]byte("My first task"))
+
+	// Add second task.
+	id2, _ := tm.Add([]byte("My second task"))
+
+	// Start the first task.
+	if err = tm.Start(id1, nil); err != nil {
+		log.Printf("start task %v error: %v", id1, err)
 		return
 	}
 
-	// Start the task.
-	if err = tm.Start(id, nil); err != nil {
-		log.Printf("start task %v error: %v", id, err)
+	// Start the second task.
+	<-time.After(time.Millisecond * 20)
+	if err = tm.Start(id2, nil); err != nil {
+		log.Printf("start task %v error: %v", id2, err)
 		return
 	}
 
-	// Start the same task twice.
+	// Start the first task twice.
 	<-time.After(time.Millisecond * 10)
-	if err = tm.Start(id, nil); err != nil {
-		log.Printf("start task %v again error: %v", id, err)
+	if err = tm.Start(id1, nil); err != nil {
+		log.Printf("start task %v again error: %v", id1, err)
 	}
 
-	// Suspend the task.
+	// Suspend the first task.
 	<-time.After(time.Millisecond * 200)
-	if err = tm.Suspend(id); err != nil {
-		log.Printf("suspend task %v error: %v", id, err)
+	if err = tm.Suspend(id1); err != nil {
+		log.Printf("suspend task %v error: %v", id1, err)
 		return
 	}
 
-	// Resume the task.
+	// Resume the first task.
 	<-time.After(time.Millisecond * 1000)
-	if err = tm.Resume(id); err != nil {
-		log.Printf("resume task %v error: %v", id, err)
+	if err = tm.Resume(id1); err != nil {
+		log.Printf("resume task %v error: %v", id1, err)
 		return
 	}
 
-	// Stop the task.
+	// Stop the first task.
 	<-time.After(time.Millisecond * 100)
-	if err = tm.Stop(id); err != nil {
-		log.Printf("stop task %v error: %v", id, err)
+	if err = tm.Stop(id1); err != nil {
+		log.Printf("stop task %v error: %v", id1, err)
 		return
 	}
 
-	// Restore the task at once after stop it.
+	// Restore the first task at once after stop it.
 	// It loads the saved state.
 	state := <-stateCh
-	if err = tm.Start(id, state); err != nil {
-		log.Printf("restore task %v error: %v", id, err)
+	if err = tm.Start(id1, state); err != nil {
+		log.Printf("restore task %v error: %v", id1, err)
 		return
 	}
 

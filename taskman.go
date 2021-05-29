@@ -283,16 +283,17 @@ type TaskData struct {
 }
 
 type TaskMan struct {
-	ctx         context.Context
-	name        string
-	concurrency int
-	newTask     func(data []byte) Task
-	taskDatas   map[int64]*TaskData
-	taskDatasMu *sync.RWMutex
-	maxID       int64
-	total       int64
-	sem         chan struct{}
-	msgCh       chan Message
+	ctx             context.Context
+	name            string
+	concurrency     int
+	runningTasksNum int32
+	newTask         func(data []byte) Task
+	taskDatas       map[int64]*TaskData
+	taskDatasMu     *sync.RWMutex
+	maxID           int64
+	total           int64
+	sem             chan struct{}
+	msgCh           chan Message
 }
 
 func Register(name string, f func(data []byte) Task) {
@@ -318,16 +319,17 @@ func New(name string, concurrency int) (*TaskMan, <-chan Message, error) {
 	}
 
 	tm := &TaskMan{
-		ctx:         context.Background(),
-		name:        name,
-		concurrency: concurrency,
-		newTask:     taskMans[name],
-		taskDatas:   make(map[int64]*TaskData),
-		taskDatasMu: &sync.RWMutex{},
-		maxID:       0,
-		total:       0,
-		sem:         make(chan struct{}, concurrency),
-		msgCh:       make(chan Message),
+		ctx:             context.Background(),
+		name:            name,
+		concurrency:     concurrency,
+		runningTasksNum: 0,
+		newTask:         taskMans[name],
+		taskDatas:       make(map[int64]*TaskData),
+		taskDatasMu:     &sync.RWMutex{},
+		maxID:           0,
+		total:           0,
+		sem:             make(chan struct{}, concurrency),
+		msgCh:           make(chan Message),
 	}
 
 	return tm, tm.msgCh, nil
@@ -424,16 +426,27 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData, state []byte
 		}
 
 		tm.msgCh <- newMessage(id, EXITED, nil)
+
+		if atomic.AddInt32(&tm.runningTasksNum, -1) <= 0 {
+			tm.msgCh <- newMessage(id, ALL_EXITED, nil)
+		}
 	}()
 
 	if state != nil {
-		if err := td.task.UnmarshalBinary(state); err != nil {
+		if err = td.task.UnmarshalBinary(state); err != nil {
 			return
 		}
 		tm.msgCh <- newMessage(id, RESTORED, state)
 	} else {
+		// Init task
+		if err = td.task.Init(ctx); err != nil {
+			return
+		}
+
 		tm.msgCh <- newMessage(id, STARTED, nil)
 	}
+
+	atomic.AddInt32(&tm.runningTasksNum, 1)
 
 	for {
 		select {
@@ -476,9 +489,16 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData, state []byte
 				}
 
 				if done {
+					// Save final state.
 					if savedState, err = td.task.MarshalBinary(); err != nil {
 						return
 					}
+
+					// Deinit task.
+					if err = td.task.Deinit(ctx); err != nil {
+						return
+					}
+
 					return
 				}
 			}
