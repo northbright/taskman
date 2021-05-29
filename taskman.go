@@ -261,8 +261,10 @@ const (
 	DefConcurrency = 16
 )
 
+type NewTaskFunc func(data []byte) (Task, error)
+
 var (
-	taskMans   = make(map[string]func(data []byte) Task)
+	taskMans   = make(map[string]NewTaskFunc)
 	taskMansMu = &sync.RWMutex{}
 
 	NoSuchTaskNameErr = errors.New("no such task name")
@@ -287,7 +289,7 @@ type TaskMan struct {
 	name            string
 	concurrency     int
 	runningTasksNum int32
-	newTask         func(data []byte) Task
+	newTask         NewTaskFunc
 	taskDatas       map[int64]*TaskData
 	taskDatasMu     *sync.RWMutex
 	maxID           int64
@@ -296,7 +298,7 @@ type TaskMan struct {
 	msgCh           chan Message
 }
 
-func Register(name string, f func(data []byte) Task) {
+func Register(name string, f NewTaskFunc) {
 	if _, ok := taskMans[name]; ok {
 		panic("taskman: Register twice for: " + name)
 	}
@@ -340,7 +342,10 @@ func (tm *TaskMan) MsgCh() <-chan Message {
 }
 
 func (tm *TaskMan) Add(data []byte) (int64, error) {
-	t := tm.newTask(data)
+	t, err := tm.newTask(data)
+	if err != nil {
+		return -1, err
+	}
 
 	var total int64
 	spt, ok := t.(ShowPercentTask)

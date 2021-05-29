@@ -208,12 +208,12 @@ func (t *MyTask) Total() int64 {
 }
 
 func init() {
-	taskman.Register("MyTask", func(data []byte) taskman.Task {
+	taskman.Register("MyTask", func(data []byte) (taskman.Task, error) {
 		return &MyTask{
 			name:    string(data),
 			total:   100,
 			Current: 0,
-		}
+		}, nil
 	})
 }
 
