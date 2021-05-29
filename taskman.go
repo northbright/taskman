@@ -510,6 +510,8 @@ func (tm *TaskMan) setSuspendStatus(id int64, suspended bool) error {
 		return TaskNotFoundErr
 	}
 
+	td.cancelFuncMu.RLock()
+	defer td.cancelFuncMu.RUnlock()
 	if td.cancelFunc == nil {
 		return TaskIsStoppedErr
 	}
