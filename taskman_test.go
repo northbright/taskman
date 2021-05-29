@@ -175,11 +175,16 @@ func (t *MyTask) UnmarshalBinary(state []byte) error {
 }
 
 func (t *MyTask) Init(ctx context.Context) error {
+	// Add delay to emulate initialization.
+	<-time.After(time.Millisecond * 30)
+	log.Printf("%v initialized", t.name)
 	return nil
 }
 
 func (t *MyTask) Deinit(ctx context.Context) error {
-	log.Printf("%v completed!", t.name)
+	// Add delay to emulate deinitialization.
+	<-time.After(time.Millisecond * 20)
+	log.Printf("%v deinitialized", t.name)
 	return nil
 }
 

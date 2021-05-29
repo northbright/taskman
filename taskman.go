@@ -436,9 +436,15 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData, state []byte
 		if err = td.task.UnmarshalBinary(state); err != nil {
 			return
 		}
+
+		// Init the task after state restored.
+		if err = td.task.Init(ctx); err != nil {
+			return
+		}
+
 		tm.msgCh <- newMessage(id, RESTORED, state)
 	} else {
-		// Init task
+		// Init the task.
 		if err = td.task.Init(ctx); err != nil {
 			return
 		}
