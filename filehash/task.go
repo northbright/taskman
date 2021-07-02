@@ -2,15 +2,14 @@ package filehash
 
 import (
 	"context"
-	"crypto"
 	"encoding/json"
 
 	"github.com/northbright/taskman"
 )
 
 type Task struct {
-	File      string        `json:"file"`
-	HashFuncs []crypto.Hash `json:"hash_funcs"`
+	File      string   `json:"file"`
+	HashFuncs []string `json:"hash_funcs"`
 }
 
 func init() {
