@@ -337,10 +337,6 @@ func New(name string, concurrency int) (*TaskMan, <-chan Message, error) {
 	return tm, tm.msgCh, nil
 }
 
-func (tm *TaskMan) MsgCh() <-chan Message {
-	return tm.msgCh
-}
-
 func (tm *TaskMan) Add(data []byte) (int64, error) {
 	t, err := tm.newTask(data)
 	if err != nil {
