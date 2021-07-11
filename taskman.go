@@ -194,6 +194,10 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData, state []byte
 			}
 
 		case nil:
+			// Update progress to 100 if need(e.g only 1 step and task is done).
+			if int(percent) < 100 {
+				tm.msgCh <- newMessage(id, PROGRESS_UPDATED, 100)
+			}
 			tm.msgCh <- newMessage(id, DONE, savedState)
 			tm.msgCh <- newMessage(id, RESULT_GENERATED, result)
 		default:
