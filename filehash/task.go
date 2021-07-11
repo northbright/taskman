@@ -160,23 +160,23 @@ func (t *Task) Deinit(ctx context.Context) error {
 func (t *Task) Step() (int64, bool, error) {
 	n, err := t.r.Read(t.buf)
 	if err != nil && err != io.EOF {
-		return t.summed, false, err
+		return t.summed, true, err
 	}
 
 	if n == 0 {
-		return t.summed, false, nil
+		return t.summed, true, nil
 	} else {
 
 		// Adds more data to the running hash.
 		for _, h := range t.hashes {
 			if n, err = h.Write(t.buf[:n]); err != nil {
-				return t.summed, false, err
+				return t.summed, true, err
 			}
 		}
 
 		t.summed += int64(n)
 
-		return t.summed, true, nil
+		return t.summed, false, nil
 	}
 }
 
