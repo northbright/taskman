@@ -243,6 +243,11 @@ func ExampleTaskMan() {
 					state, _ := m.Data.([]byte)
 					log.Printf("saved state: %s", string(state))
 					stateCh <- state
+				case taskman.DELETED:
+					log.Printf("task: %v deleted", m.TaskID)
+					state, _ := m.Data.([]byte)
+					log.Printf("saved state: %s", string(state))
+
 				case taskman.RESTORED:
 					log.Printf("task: %v restored", m.TaskID)
 					state, _ := m.Data.([]byte)
@@ -320,6 +325,13 @@ func ExampleTaskMan() {
 	state := <-stateCh
 	if err = tm.Start(id1, state); err != nil {
 		log.Printf("restore task %v error: %v", id1, err)
+		return
+	}
+
+	// Delete the first task
+	<-time.After(time.Millisecond * 100)
+	if err = tm.Delete(id1); err != nil {
+		log.Printf("delete task %v error: %v", id1, err)
 		return
 	}
 

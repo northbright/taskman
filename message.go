@@ -17,6 +17,8 @@ const (
 	STARTED
 	// Task is stopped.
 	STOPPED
+	// Task is deleted.
+	DELETED
 	// Task is restored.
 	RESTORED
 	// Task is suspended.
@@ -42,6 +44,7 @@ var (
 		SCHEDULED:        "scheduled",
 		STARTED:          "started",
 		STOPPED:          "stopped",
+		DELETED:          "deleted",
 		RESTORED:         "restored",
 		SUSPENDED:        "suspended",
 		RESUMED:          "resumed",
@@ -69,6 +72,7 @@ type Message struct {
 	// SCHEDULED: data is nil.
 	// STARTED: data is nil.
 	// STOPPED: data is []byte to store saved state.
+	// DELETED: data is []byte to store saved state.
 	// RESTORED: data is []byte to store restored state.
 	// SUSPENDED: data is nil.
 	// RESUMED: data is nil.

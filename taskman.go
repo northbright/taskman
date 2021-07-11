@@ -35,6 +35,8 @@ type TaskData struct {
 	suspendedMu  *sync.RWMutex
 	showPercent  bool
 	total        int64
+	isDeleted    bool
+	isDeletedMu  *sync.RWMutex
 }
 
 type TaskMan struct {
@@ -114,6 +116,8 @@ func (tm *TaskMan) Add(data []byte) (int64, error) {
 		suspendedMu:  &sync.RWMutex{},
 		showPercent:  ok,
 		total:        total,
+		isDeleted:    false,
+		isDeletedMu:  &sync.RWMutex{},
 	}
 	tm.taskDatas[id] = td
 	tm.taskDatasMu.Unlock()
@@ -172,7 +176,22 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData, state []byte
 
 		switch err {
 		case context.Canceled, context.DeadlineExceeded:
-			tm.msgCh <- newMessage(id, STOPPED, savedState)
+			// Check if task is also deleted.
+			td.isDeletedMu.RLock()
+			isDeleted := td.isDeleted
+			td.isDeletedMu.RUnlock()
+
+			if isDeleted {
+				// Remove the task from task data map
+				tm.taskDatasMu.Lock()
+				delete(tm.taskDatas, id)
+				tm.taskDatasMu.Unlock()
+
+				tm.msgCh <- newMessage(id, DELETED, savedState)
+			} else {
+				tm.msgCh <- newMessage(id, STOPPED, savedState)
+			}
+
 		case nil:
 			tm.msgCh <- newMessage(id, DONE, savedState)
 		default:
@@ -273,7 +292,7 @@ func computePercent(current, total int64) float64 {
 	return 0
 }
 
-func (tm *TaskMan) Stop(id int64) error {
+func (tm *TaskMan) stop(id int64, isDeleted bool) error {
 	tm.taskDatasMu.RLock()
 	defer tm.taskDatasMu.RUnlock()
 
@@ -283,6 +302,13 @@ func (tm *TaskMan) Stop(id int64) error {
 		return TaskNotFoundErr
 	}
 
+	// Mark the task as to be isDeleted.
+	if isDeleted {
+		td.isDeletedMu.Lock()
+		td.isDeleted = true
+		td.isDeletedMu.Unlock()
+	}
+
 	td.cancelFuncMu.RLock()
 	if td.cancelFunc != nil {
 		td.cancelFunc()
@@ -290,6 +316,14 @@ func (tm *TaskMan) Stop(id int64) error {
 	td.cancelFuncMu.RUnlock()
 
 	return nil
+}
+
+func (tm *TaskMan) Stop(id int64) error {
+	return tm.stop(id, false)
+}
+
+func (tm *TaskMan) Delete(id int64) error {
+	return tm.stop(id, true)
 }
 
 func (tm *TaskMan) setSuspendStatus(id int64, suspended bool) error {
