@@ -203,6 +203,10 @@ func (t *MyTask) Step() (int64, bool, error) {
 	return t.Current, done, nil
 }
 
+func (t *MyTask) Result() ([]byte, error) {
+	return []byte("OK"), nil
+}
+
 func (t *MyTask) Total() int64 {
 	return t.total
 }
@@ -261,6 +265,10 @@ func ExampleTaskMan() {
 					log.Printf("task: %v done", m.TaskID)
 					state, _ := m.Data.([]byte)
 					log.Printf("final saved state: %s", string(state))
+				case taskman.RESULT_GENERATED:
+					log.Printf("task: %v result generated", m.TaskID)
+					result, _ := m.Data.([]byte)
+					log.Printf("result: %s", string(result))
 				case taskman.EXITED:
 					log.Printf("task: %v exited", m.TaskID)
 				case taskman.ALL_EXITED:

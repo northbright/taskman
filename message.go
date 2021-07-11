@@ -29,6 +29,8 @@ const (
 	PROGRESS_UPDATED
 	// Task is done.
 	DONE
+	// Task's result is generated.
+	RESULT_GENERATED
 	// Goroutine of the task exited.
 	EXITED
 	// All tasks exited.
@@ -50,6 +52,7 @@ var (
 		RESUMED:          "resumed",
 		PROGRESS_UPDATED: "progress_updated",
 		DONE:             "done",
+		RESULT_GENERATED: "result_generated",
 		EXITED:           "exited",
 		ALL_EXITED:       "all_exited",
 		UNKNOWN:          "unknown",
@@ -78,6 +81,7 @@ type Message struct {
 	// RESUMED: data is nil.
 	// PROGRESS_UPDATED: data is a int to store the percent(0 - 100).
 	// DONE: data is []byte to store final saved state.
+	// RESULT_GENERATED: data is []byte to store the result.
 	// EXITED: data is nil.
 	// ALL_EXITED: data is nil.
 	Data interface{} `json:"data,omitempty"`

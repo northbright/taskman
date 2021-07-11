@@ -25,6 +25,7 @@ type Task interface {
 	Init(ctx context.Context) error
 	Deinit(ctx context.Context) error
 	Step() (int64, bool, error)
+	Result() ([]byte, error)
 }
 
 type ShowPercentTask interface {

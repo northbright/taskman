@@ -159,6 +159,7 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData, state []byte
 	var (
 		err        error
 		savedState []byte
+		result     []byte
 		suspended  bool
 		percent    float64
 	)
@@ -194,6 +195,7 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData, state []byte
 
 		case nil:
 			tm.msgCh <- newMessage(id, DONE, savedState)
+			tm.msgCh <- newMessage(id, RESULT_GENERATED, result)
 		default:
 			tm.msgCh <- newMessage(id, ERROR, err.Error())
 		}
@@ -270,6 +272,11 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData, state []byte
 				if done {
 					// Save final state.
 					if savedState, err = td.task.MarshalBinary(); err != nil {
+						return
+					}
+
+					// Generate result.
+					if result, err = td.task.Result(); err != nil {
 						return
 					}
 
