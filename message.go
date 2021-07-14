@@ -37,7 +37,7 @@ const (
 	ALL_EXITED
 	// Unknown message type.
 	UNKNOWN
-	maxTYPE
+	maxMessageType
 )
 
 var (
