@@ -35,8 +35,6 @@ type TaskData struct {
 	suspendedMu  *sync.RWMutex
 	showPercent  bool
 	total        int64
-	isDeleted    bool
-	isDeletedMu  *sync.RWMutex
 }
 
 type TaskMan struct {
@@ -106,6 +104,7 @@ func (tm *TaskMan) Add(data []byte) (int64, error) {
 	}
 
 	id := atomic.AddInt64(&tm.maxID, 1)
+
 	tm.taskDatasMu.Lock()
 	td := &TaskData{
 		task:         t,
@@ -116,8 +115,6 @@ func (tm *TaskMan) Add(data []byte) (int64, error) {
 		suspendedMu:  &sync.RWMutex{},
 		showPercent:  ok,
 		total:        total,
-		isDeleted:    false,
-		isDeletedMu:  &sync.RWMutex{},
 	}
 	tm.taskDatas[id] = td
 	tm.taskDatasMu.Unlock()
@@ -125,34 +122,11 @@ func (tm *TaskMan) Add(data []byte) (int64, error) {
 	return id, nil
 }
 
-func (tm *TaskMan) Start(id int64, state []byte) error {
-	tm.taskDatasMu.Lock()
-	defer tm.taskDatasMu.Unlock()
-
-	td, ok := tm.taskDatas[id]
-	if !ok {
-		return TaskNotFoundErr
+func computePercent(current, total int64) float64 {
+	if total > 0 {
+		return float64(current) / (float64(total) / float64(100))
 	}
-
-	if td.cancelFunc != nil {
-		return TaskIsRunningErr
-	}
-
-	ctx, cancelFunc := context.WithCancel(tm.ctx)
-
-	td.cancelFuncMu.Lock()
-	td.cancelFunc = cancelFunc
-	td.cancelFuncMu.Unlock()
-
-	td.suspendedMu.Lock()
-	td.suspended = false
-	td.suspendedMu.Unlock()
-
-	go func() {
-		tm.run(ctx, id, td, state)
-	}()
-
-	return nil
+	return 0
 }
 
 func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData, state []byte) {
@@ -177,20 +151,15 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData, state []byte
 
 		switch err {
 		case context.Canceled, context.DeadlineExceeded:
+			tm.msgCh <- newMessage(id, STOPPED, savedState)
+
 			// Check if task is also deleted.
-			td.isDeletedMu.RLock()
-			isDeleted := td.isDeleted
-			td.isDeletedMu.RUnlock()
+			tm.taskDatasMu.RLock()
+			_, ok := tm.taskDatas[id]
+			tm.taskDatasMu.RUnlock()
 
-			if isDeleted {
-				// Remove the task from task data map
-				tm.taskDatasMu.Lock()
-				delete(tm.taskDatas, id)
-				tm.taskDatasMu.Unlock()
-
+			if !ok {
 				tm.msgCh <- newMessage(id, DELETED, savedState)
-			} else {
-				tm.msgCh <- newMessage(id, STOPPED, savedState)
 			}
 
 		case nil:
@@ -296,45 +265,78 @@ func (tm *TaskMan) run(ctx context.Context, id int64, td *TaskData, state []byte
 	}
 }
 
-func computePercent(current, total int64) float64 {
-	if total > 0 {
-		return float64(current) / (float64(total) / float64(100))
-	}
-	return 0
-}
-
-func (tm *TaskMan) stop(id int64, isDeleted bool) error {
+func (tm *TaskMan) Start(id int64, state []byte) error {
 	tm.taskDatasMu.RLock()
 	defer tm.taskDatasMu.RUnlock()
 
 	td, ok := tm.taskDatas[id]
-
 	if !ok {
 		return TaskNotFoundErr
 	}
 
-	// Mark the task as to be isDeleted.
-	if isDeleted {
-		td.isDeletedMu.Lock()
-		td.isDeleted = true
-		td.isDeletedMu.Unlock()
+	td.cancelFuncMu.Lock()
+	defer td.cancelFuncMu.Unlock()
+
+	if td.cancelFunc != nil {
+		return TaskIsRunningErr
 	}
 
-	td.cancelFuncMu.RLock()
-	if td.cancelFunc != nil {
-		td.cancelFunc()
-	}
-	td.cancelFuncMu.RUnlock()
+	ctx, cancelFunc := context.WithCancel(tm.ctx)
+	td.cancelFunc = cancelFunc
+
+	td.suspendedMu.Lock()
+	td.suspended = false
+	td.suspendedMu.Unlock()
+
+	go func() {
+		tm.run(ctx, id, td, state)
+	}()
 
 	return nil
 }
 
 func (tm *TaskMan) Stop(id int64) error {
-	return tm.stop(id, false)
+	tm.taskDatasMu.RLock()
+	defer tm.taskDatasMu.RUnlock()
+
+	td, ok := tm.taskDatas[id]
+	if !ok {
+		return TaskNotFoundErr
+	}
+
+	td.cancelFuncMu.RLock()
+	defer td.cancelFuncMu.RUnlock()
+
+	if td.cancelFunc != nil {
+		td.cancelFunc()
+	}
+
+	return nil
 }
 
 func (tm *TaskMan) Delete(id int64) error {
-	return tm.stop(id, true)
+	tm.taskDatasMu.RLock()
+	defer tm.taskDatasMu.RUnlock()
+
+	td, ok := tm.taskDatas[id]
+	if !ok {
+		return TaskNotFoundErr
+	}
+
+	delete(tm.taskDatas, id)
+
+	td.cancelFuncMu.RLock()
+	defer td.cancelFuncMu.RUnlock()
+
+	if td.cancelFunc != nil {
+		td.cancelFunc()
+	} else {
+		go func() {
+			tm.msgCh <- newMessage(id, DELETED, nil)
+		}()
+	}
+
+	return nil
 }
 
 func (tm *TaskMan) setSuspendStatus(id int64, suspended bool) error {
