@@ -4,10 +4,21 @@ import (
 	"encoding"
 )
 
+// Task is the common interface implemented by all real-world tasks.
 type Task interface {
+	// Should implement encoding.BinaryMarshaler interface:
+	// MarshalBinary() (data []byte, err error)
+	// Used to serialize task state
 	encoding.BinaryMarshaler
+	// Should implement encoding.BinaryUnmarshaler interface:
+	// UnmarshalBinary(data []byte) error
+	// Used to deserialize task state.
 	encoding.BinaryUnmarshaler
+	// Init does the initialization before the first step starts.
+	// Return:
+	// int64: number of total steps. It's used to compute progress.
 	Init() (int64, error)
+	// Deinit deinitializes after all steps are done.
 	Deinit() error
 	// Step does the real work.
 	// A large task can be devided into many small pieces(steps).
