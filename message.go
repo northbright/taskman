@@ -1,27 +1,37 @@
 package taskman
 
-import (
-	"encoding/json"
+import ()
+
+const (
+	ADDED            = "added"
+	SCHEDULED        = "scheduled"
+	STARTED          = "started"
+	STOPPED          = "stopped"
+	REMOVED          = "removed"
+	SUSPENDED        = "suspended"
+	RESUMED          = "resumed"
+	DONE             = "done"
+	PROGRESS_UPDATED = "progress_updated"
 )
 
 type Message interface {
-	json.Marshaler
+	Type() string
 }
 
 type AddedMessage struct {
 	ID string `json:"id"`
 }
 
-func (m *AddedMessage) MarshalJSON() ([]byte, error) {
-	return json.Marshal(m)
+func (m *AddedMessage) Type() string {
+	return ADDED
 }
 
 type ScheduledMessage struct {
 	ID string `json:"id"`
 }
 
-func (m *ScheduledMessage) MarshalJSON() ([]byte, error) {
-	return json.Marshal(m)
+func (m *ScheduledMessage) Type() string {
+	return SCHEDULED
 }
 
 type StartedMessage struct {
@@ -29,8 +39,8 @@ type StartedMessage struct {
 	State []byte `json:"state"`
 }
 
-func (m *StartedMessage) MarshalJSON() ([]byte, error) {
-	return json.Marshal(m)
+func (m *StartedMessage) Type() string {
+	return STARTED
 }
 
 type StoppedMessage struct {
@@ -39,24 +49,32 @@ type StoppedMessage struct {
 	ErrMsg error  `json:"err_msg"`
 }
 
-func (m *StoppedMessage) MarshalJSON() ([]byte, error) {
-	return json.Marshal(m)
+func (m *StoppedMessage) Type() string {
+	return STOPPED
+}
+
+type RemoveMessage struct {
+	ID string `json:"id"`
+}
+
+func (m *RemoveMessage) Type() string {
+	return REMOVED
 }
 
 type SuspendedMessage struct {
 	ID string `json:"id"`
 }
 
-func (m *SuspendedMessage) MarshalJSON() ([]byte, error) {
-	return json.Marshal(m)
+func (m *SuspendedMessage) Type() string {
+	return SUSPENDED
 }
 
 type ResumedMessage struct {
 	ID string `json:"id"`
 }
 
-func (m *ResumedMessage) MarshalJSON() ([]byte, error) {
-	return json.Marshal(m)
+func (m *ResumedMessage) Type() string {
+	return RESUMED
 }
 
 type DoneMessage struct {
@@ -64,8 +82,8 @@ type DoneMessage struct {
 	Result []byte `json:"result"`
 }
 
-func (m *DoneMessage) MarshalJSON() ([]byte, error) {
-	return json.Marshal(m)
+func (m *DoneMessage) Type() string {
+	return DONE
 }
 
 type ProgressMessage struct {
@@ -74,6 +92,6 @@ type ProgressMessage struct {
 	TotalProgress float32 `json:"total_progress"`
 }
 
-func (m *ProgressMessage) MarshalJSON() ([]byte, error) {
-	return json.Marshal(m)
+func (m *ProgressMessage) Type() string {
+	return PROGRESS_UPDATED
 }
