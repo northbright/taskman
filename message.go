@@ -19,7 +19,7 @@ type Message interface {
 }
 
 type AddedMessage struct {
-	ID string `json:"id"`
+	ID int `json:"id"`
 }
 
 func (m *AddedMessage) Type() string {
@@ -27,7 +27,7 @@ func (m *AddedMessage) Type() string {
 }
 
 type ScheduledMessage struct {
-	ID string `json:"id"`
+	ID int `json:"id"`
 }
 
 func (m *ScheduledMessage) Type() string {
@@ -35,7 +35,7 @@ func (m *ScheduledMessage) Type() string {
 }
 
 type StartedMessage struct {
-	ID    string `json:"id"`
+	ID    int    `json:"id"`
 	State []byte `json:"state"`
 }
 
@@ -44,7 +44,7 @@ func (m *StartedMessage) Type() string {
 }
 
 type StoppedMessage struct {
-	ID     string `json:"id"`
+	ID     int    `json:"id"`
 	State  []byte `json:"state"`
 	ErrMsg error  `json:"err_msg"`
 }
@@ -54,7 +54,7 @@ func (m *StoppedMessage) Type() string {
 }
 
 type RemoveMessage struct {
-	ID string `json:"id"`
+	ID int `json:"id"`
 }
 
 func (m *RemoveMessage) Type() string {
@@ -62,7 +62,7 @@ func (m *RemoveMessage) Type() string {
 }
 
 type SuspendedMessage struct {
-	ID string `json:"id"`
+	ID int `json:"id"`
 }
 
 func (m *SuspendedMessage) Type() string {
@@ -70,7 +70,7 @@ func (m *SuspendedMessage) Type() string {
 }
 
 type ResumedMessage struct {
-	ID string `json:"id"`
+	ID int `json:"id"`
 }
 
 func (m *ResumedMessage) Type() string {
@@ -78,7 +78,7 @@ func (m *ResumedMessage) Type() string {
 }
 
 type DoneMessage struct {
-	ID     string `json:"id"`
+	ID     int    `json:"id"`
 	Result []byte `json:"result"`
 }
 
@@ -87,7 +87,7 @@ func (m *DoneMessage) Type() string {
 }
 
 type ProgressMessage struct {
-	ID            string  `json:"id"`
+	ID            int     `json:"id"`
 	Progress      float32 `json:"progress"`
 	TotalProgress float32 `json:"total_progress"`
 }
