@@ -30,7 +30,7 @@ func (c *AddCommand) Type() string {
 }
 
 type StartCommand struct {
-	ID    string `json:"id"`
+	ID    int    `json:"id"`
 	State []byte `json:"state"`
 }
 
@@ -39,7 +39,7 @@ func (c *StartCommand) Type() string {
 }
 
 type StopCommand struct {
-	ID string `json:"id"`
+	ID int `json:"id"`
 }
 
 func (c *StopCommand) Type() string {
@@ -47,7 +47,7 @@ func (c *StopCommand) Type() string {
 }
 
 type RemoveCommand struct {
-	ID string `json:"id"`
+	ID int `json:"id"`
 }
 
 func (c *RemoveCommand) Type() string {
@@ -55,7 +55,7 @@ func (c *RemoveCommand) Type() string {
 }
 
 type SuspendCommand struct {
-	ID string `json:"id"`
+	ID int `json:"id"`
 }
 
 func (c *SuspendCommand) Type() string {
@@ -63,9 +63,15 @@ func (c *SuspendCommand) Type() string {
 }
 
 type ResumeCommand struct {
-	ID string `json:"id"`
+	ID int `json:"id"`
 }
 
 func (c *ResumeCommand) Type() string {
 	return RESUME
+}
+
+type CommandResult struct {
+	Cmd     Command `json:"cmd"`
+	Success bool    `json:"success"`
+	ErrMsg  string  `json:"err_msg"`
 }
