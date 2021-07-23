@@ -1,10 +1,12 @@
 package taskman
 
+type Status int
+
 const (
-	SCHEDULED = "scheduled"
-	STARTED   = "started"
-	STOPPED   = "stopped"
-	SUSPENDED = "suspended"
-	RESUMED   = "resumed"
-	DONE      = "done"
+	SCHEDULED = iota
+	STARTED
+	STOPPED
+	SUSPENDED
+	RESUMED
+	DONE
 )

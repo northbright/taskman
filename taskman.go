@@ -32,7 +32,7 @@ var (
 
 type taskData struct {
 	t      Task
-	status string
+	status Status
 }
 
 type TaskMan struct {
