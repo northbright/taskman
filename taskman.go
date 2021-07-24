@@ -14,8 +14,6 @@ const (
 	DefaultConcurrency = 1
 )
 
-type NewTaskFunc func(data []byte) (Task, error)
-
 type OnStatusChanged func(env interface{}, id int, status Status, state []byte, result []byte)
 
 type OnProgressUpdated func(env interface{}, id int, current, total, currentAll, totalAll int64, progress, progressAll float32)
@@ -23,9 +21,6 @@ type OnProgressUpdated func(env interface{}, id int, current, total, currentAll,
 type OnError func(env interface{}, id int, err error)
 
 var (
-	taskFuncs   = make(map[string]NewTaskFunc)
-	taskFuncsMu = &sync.RWMutex{}
-
 	NoSuchTaskNameErr     = errors.New("no such task name")
 	TaskNotFoundErr       = errors.New("task not found")
 	TaskIsRunningErr      = errors.New("task is running")
@@ -77,7 +72,6 @@ func (td *taskData) getRemoved() bool {
 type TaskMan struct {
 	concurrency       int
 	runningTasksNum   int32
-	newTask           NewTaskFunc
 	env               interface{}
 	onStatusChanged   OnStatusChanged
 	onProgressUpdated OnProgressUpdated
@@ -91,25 +85,7 @@ type TaskMan struct {
 	total             int64
 }
 
-func Register(name string, f NewTaskFunc) {
-	if _, ok := taskFuncs[name]; ok {
-		panic("taskman: Register twice for: " + name)
-	}
-
-	taskFuncsMu.Lock()
-	taskFuncs[name] = f
-	taskFuncsMu.Unlock()
-}
-
-func New(name string, concurrency int, env interface{}, onStatusChanged OnStatusChanged, onProgressUpdated OnProgressUpdated, onError OnError) (*TaskMan, error) {
-	taskFuncsMu.RLock()
-	_, ok := taskFuncs[name]
-	taskFuncsMu.RUnlock()
-
-	if !ok {
-		return nil, NoSuchTaskNameErr
-	}
-
+func New(concurrency int, env interface{}, onStatusChanged OnStatusChanged, onProgressUpdated OnProgressUpdated, onError OnError) (*TaskMan, error) {
 	if concurrency <= 0 {
 		concurrency = DefaultConcurrency
 	}
@@ -117,7 +93,6 @@ func New(name string, concurrency int, env interface{}, onStatusChanged OnStatus
 	tm := &TaskMan{
 		concurrency:       concurrency,
 		runningTasksNum:   0,
-		newTask:           taskFuncs[name],
 		env:               env,
 		onStatusChanged:   onStatusChanged,
 		onProgressUpdated: onProgressUpdated,
@@ -134,12 +109,7 @@ func New(name string, concurrency int, env interface{}, onStatusChanged OnStatus
 	return tm, nil
 }
 
-func (tm *TaskMan) Add(data []byte) (int, error) {
-	t, err := tm.newTask(data)
-	if err != nil {
-		return -1, err
-	}
-
+func (tm *TaskMan) Add(t Task) (int, error) {
 	tm.taskDatasMu.Lock()
 	td := &taskData{
 		task:        t,
