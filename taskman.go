@@ -143,6 +143,7 @@ func (tm *TaskMan) run(id int, state []byte, td *taskData) {
 		err         error
 		suspended   bool
 		current     int64
+		oldCurrent  int64
 		total       int64
 		progress    float32
 		oldProgress float32
@@ -199,13 +200,14 @@ func (tm *TaskMan) run(id int, state []byte, td *taskData) {
 				continue
 			}
 
-			current, done, result, err = td.task.Step(current)
+			current, done, result, err = td.task.Step()
 			if err != nil {
 				tm.onError(tm.env, id, err)
 				return
 			}
 
-			atomic.AddInt64(&tm.current, current)
+			atomic.AddInt64(&tm.current, current-oldCurrent)
+			oldCurrent = current
 
 			if total > 0 {
 				progress = computeProgress(current, total)
