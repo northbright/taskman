@@ -4,11 +4,10 @@ import (
 	//"bytes"
 	//"context"
 	"errors"
-	"log"
-	"unsafe"
-	//"runtime"
+	//"log"
+	"runtime"
 	"sync"
-	//"sync/atomic"
+	"sync/atomic"
 )
 
 const (
@@ -17,37 +16,79 @@ const (
 
 type NewTaskFunc func(data []byte) (Task, error)
 
-type Callback func(env unsafe.Pointer, msg Message)
+type OnStatusChanged func(env interface{}, id int, status Status, state []byte, result []byte)
+
+type OnProgressUpdated func(env interface{}, id int, current, total, currentAll, totalAll int64, progress, progressAll float32)
+
+type OnError func(env interface{}, id int, err error)
 
 var (
 	taskFuncs   = make(map[string]NewTaskFunc)
 	taskFuncsMu = &sync.RWMutex{}
 
-	NoSuchTaskNameErr = errors.New("no such task name")
-	TaskNotFoundErr   = errors.New("task not found")
-	TaskIsRunningErr  = errors.New("task is running")
-	TaskIsStoppedErr  = errors.New("task is stopped")
-	InvalidCommand    = errors.New("invalid command")
+	NoSuchTaskNameErr     = errors.New("no such task name")
+	TaskNotFoundErr       = errors.New("task not found")
+	TaskIsRunningErr      = errors.New("task is running")
+	TaskIsStoppedErr      = errors.New("task is stopped")
+	InvalidCommand        = errors.New("invalid command")
+	InvadliStatusToChange = errors.New("invalid status to change")
 )
 
 type taskData struct {
-	t      Task
-	status Status
+	task        Task
+	removed     bool
+	removedMu   *sync.RWMutex
+	status      Status
+	statusMu    *sync.RWMutex
+	scheduledCh chan struct{}
+	toStopCh    chan struct{}
+	stoppedCh   chan struct{}
+	toSuspendCh chan bool
+}
+
+func (td *taskData) setStatus(status Status) {
+	td.statusMu.Lock()
+	td.status = status
+	td.statusMu.Unlock()
+}
+
+func (td *taskData) getStatus() Status {
+	td.statusMu.RLock()
+	status := td.status
+	td.statusMu.RUnlock()
+
+	return status
+}
+
+func (td *taskData) SetRemoved(removed bool) {
+	td.removedMu.Lock()
+	td.removed = removed
+	td.removedMu.Unlock()
+}
+
+func (td *taskData) getRemoved() bool {
+	td.removedMu.RLock()
+	removed := td.removed
+	td.removedMu.RUnlock()
+
+	return removed
 }
 
 type TaskMan struct {
-	concurrency int
-	newTask     NewTaskFunc
-	env         unsafe.Pointer
-	cb          Callback
-	maxID       int
-	sem         chan struct{}
-	cmdCh       chan Command
-	cmdResultCh chan CommandResult
-	statusCh    chan string
-	msgCh       chan Message
-	taskDatas   map[int]taskData
-	total       int64
+	concurrency       int
+	runningTasksNum   int32
+	newTask           NewTaskFunc
+	env               interface{}
+	onStatusChanged   OnStatusChanged
+	onProgressUpdated OnProgressUpdated
+	onError           OnError
+	maxID             int32
+	sem               chan struct{}
+	statusCh          chan Status
+	taskDatas         map[int]*taskData
+	taskDatasMu       *sync.RWMutex
+	current           int64
+	total             int64
 }
 
 func Register(name string, f NewTaskFunc) {
@@ -60,10 +101,11 @@ func Register(name string, f NewTaskFunc) {
 	taskFuncsMu.Unlock()
 }
 
-func New(name string, concurrency int, env unsafe.Pointer, cb Callback) (*TaskMan, error) {
+func New(name string, concurrency int, env interface{}, onStatusChanged OnStatusChanged, onProgressUpdated OnProgressUpdated, onError OnError) (*TaskMan, error) {
 	taskFuncsMu.RLock()
 	_, ok := taskFuncs[name]
 	taskFuncsMu.RUnlock()
+
 	if !ok {
 		return nil, NoSuchTaskNameErr
 	}
@@ -73,142 +115,192 @@ func New(name string, concurrency int, env unsafe.Pointer, cb Callback) (*TaskMa
 	}
 
 	tm := &TaskMan{
-		concurrency: concurrency,
-		newTask:     taskFuncs[name],
-		env:         env,
-		cb:          cb,
-		maxID:       0,
-		sem:         make(chan struct{}, concurrency),
-		cmdCh:       make(chan Command),
-		cmdResultCh: make(chan CommandResult),
-		msgCh:       make(chan Message),
-		taskDatas:   make(map[int]taskData),
-		total:       0,
+		concurrency:       concurrency,
+		runningTasksNum:   0,
+		newTask:           taskFuncs[name],
+		env:               env,
+		onStatusChanged:   onStatusChanged,
+		onProgressUpdated: onProgressUpdated,
+		onError:           onError,
+		maxID:             0,
+		sem:               make(chan struct{}, concurrency),
+		statusCh:          make(chan Status),
+		taskDatas:         make(map[int]*taskData),
+		taskDatasMu:       &sync.RWMutex{},
+		current:           0,
+		total:             0,
 	}
-
-	go func() {
-		tm.handler()
-	}()
 
 	return tm, nil
 }
 
-func (tm *TaskMan) handler() {
-	for {
-		select {
-		case cmd := <-tm.cmdCh:
-			var r CommandResult = CommandResult{
-				Cmd:     cmd,
-				Success: true,
-				ErrMsg:  "",
-			}
-
-			log.Printf("cmd: %v", cmd)
-			switch cmd.Type() {
-			case STOP:
-				stopCmd, ok := cmd.(*StopCommand)
-				if !ok {
-					r.Success = false
-					r.ErrMsg = InvalidCommand.Error()
-				}
-
-				status := tm.taskDatas[stopCmd.ID].status
-				if status != SCHEDULED && status != STARTED && status != SUSPENDED && status != RESUMED {
-					r.Success = false
-					r.ErrMsg = TaskIsStoppedErr.Error()
-				}
-
-				tm.cmdResultCh <- r
-			}
-
-		case msg := <-tm.msgCh:
-			log.Printf("msg %v", msg)
-		}
+func (tm *TaskMan) Add(data []byte) (int, error) {
+	t, err := tm.newTask(data)
+	if err != nil {
+		return -1, err
 	}
+
+	tm.taskDatasMu.Lock()
+	td := &taskData{
+		task:        t,
+		removed:     false,
+		removedMu:   &sync.RWMutex{},
+		status:      CREATED,
+		statusMu:    &sync.RWMutex{},
+		scheduledCh: make(chan struct{}),
+		toStopCh:    make(chan struct{}),
+		stoppedCh:   make(chan struct{}),
+		toSuspendCh: make(chan bool),
+	}
+
+	id := int(atomic.AddInt32(&tm.maxID, 1))
+
+	tm.taskDatas[id] = td
+	tm.taskDatasMu.Unlock()
+
+	return id, nil
 }
 
-func computePercent(current, total int64) float64 {
+func computeProgress(current, total int64) float32 {
 	if total > 0 {
-		return float64(current) / (float64(total) / float64(100))
+		return float32(float64(current) / (float64(total) / float64(100)))
 	}
 	return 0
 }
 
-func (tm *TaskMan) run(id int, t *Task, state []byte) {
-	/*
-		var (
-			err        error
-			savedState []byte
-			result     []byte
-			suspended  bool
-			percent    float64
-		)
+func (tm *TaskMan) run(id int, state []byte, td *taskData) {
+	var (
+		err         error
+		suspended   bool
+		current     int64
+		total       int64
+		progress    float32
+		oldProgress float32
+		done        bool
+		savedState  []byte
+		result      []byte
+	)
 
-		tm._msgCh <- &ScheduledMessage{ID: id}
-		tm.sem <- struct{}{}
+	td.setStatus(SCHEDULED)
+	tm.onStatusChanged(tm.env, id, SCHEDULED, nil, nil)
+	td.scheduledCh <- struct{}{}
 
-		for {
-			select {
-			case cmd := <-tm._cmdCh:
+	tm.sem <- struct{}{}
 
-			case <-ctx.Done():
-				if savedState, err = td.task.MarshalBinary(); err != nil {
-					return
-				}
-				err = ctx.Err()
+	// Init the task.
+	if current, total, err = td.task.Init(state); err != nil {
+		tm.onError(tm.env, id, err)
+		return
+	}
+
+	atomic.AddInt64(&tm.total, total)
+	atomic.AddInt32(&tm.runningTasksNum, 1)
+
+	for {
+		select {
+		case <-td.toStopCh:
+			// Update current, total for all tasks when task stopped.
+			atomic.AddInt64(&tm.current, -current)
+			atomic.AddInt64(&tm.total, -total)
+
+			// Save state when task stopped.
+			if savedState, err = td.task.MarshalBinary(); err != nil {
+				tm.onError(tm.env, id, err)
+			}
+
+			td.setStatus(STOPPED)
+
+			tm.onStatusChanged(tm.env, id, STOPPED, savedState, nil)
+			td.stoppedCh <- struct{}{}
+			return
+
+		case suspended = <-td.toSuspendCh:
+			if suspended {
+				td.setStatus(SUSPENDED)
+			} else {
+				td.setStatus(STARTED)
+			}
+			tm.onStatusChanged(tm.env, id, td.status, nil, nil)
+
+		default:
+			runtime.Gosched()
+
+			if suspended {
+				continue
+			}
+
+			current, done, result, err = td.task.Step(current)
+			if err != nil {
+				tm.onError(tm.env, id, err)
 				return
+			}
 
-			default:
-				runtime.Gosched()
+			atomic.AddInt64(&tm.current, current)
 
-				td.suspendedMu.RLock()
-				if suspended != td.suspended {
-					suspended = td.suspended
-					if suspended {
-						tm.msgCh <- newMessage(id, SUSPENDED, nil)
-					} else {
-						tm.msgCh <- newMessage(id, RESUMED, nil)
-					}
-				}
-				td.suspendedMu.RUnlock()
-
-				if !suspended {
-					current, done, err := td.task.Step()
-					if err != nil {
-						return
-					}
-
-					if td.showPercent {
-						if td.total > 0 {
-							newPercent := computePercent(current, td.total)
-							if newPercent != percent {
-								percent = newPercent
-
-								tm.msgCh <- newMessage(id, PROGRESS_UPDATED, int(percent))
-							}
-						}
-					}
-
-					if done {
-						// Save final state.
-						if savedState, err = td.task.MarshalBinary(); err != nil {
-							return
-						}
-
-						// Generate result.
-						if result, err = td.task.Result(); err != nil {
-							return
-						}
-
-						// Deinit task.
-						if err = td.task.Deinit(ctx); err != nil {
-							return
-						}
-
-						return
-					}
+			if total > 0 {
+				progress = computeProgress(current, total)
+				if progress != oldProgress {
+					oldProgress = progress
+					progressAll := computeProgress(tm.current, tm.total)
+					tm.onProgressUpdated(tm.env, id, current, total,
+						tm.current, tm.total, progress, progressAll)
 				}
 			}
+
+			if done {
+				// Save final state.
+				if savedState, err = td.task.MarshalBinary(); err != nil {
+					tm.onError(tm.env, id, err)
+					return
+				}
+
+				// Deinit task.
+				if err = td.task.Deinit(); err != nil {
+					tm.onError(tm.env, id, err)
+					return
+				}
+
+				td.setStatus(DONE)
+				tm.onStatusChanged(tm.env, id, DONE, savedState, result)
+
+				return
+			}
+
 		}
-	*/
+	}
+}
+
+func (tm *TaskMan) get(id int) (*taskData, error) {
+	tm.taskDatasMu.RLock()
+	defer tm.taskDatasMu.RUnlock()
+
+	td, ok := tm.taskDatas[id]
+	if !ok {
+		return nil, TaskNotFoundErr
+	}
+
+	if td.getRemoved() {
+		return nil, TaskNotFoundErr
+	}
+
+	return td, nil
+}
+
+func (tm *TaskMan) Start(id int, state []byte) error {
+	td, err := tm.get(id)
+	if err != nil {
+		return err
+	}
+
+	prevStatus := td.getStatus()
+	if !ValidStatusToChange(prevStatus, SCHEDULED) {
+		return InvadliStatusToChange
+	}
+
+	go func() {
+		tm.run(id, state, td)
+	}()
+
+	<-td.scheduledCh
+	return nil
 }

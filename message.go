@@ -14,7 +14,7 @@ type Message interface {
 
 type StatusUpdatedMessage struct {
 	ID     int    `json:"id"`
-	Status string `json:"status"`
+	Status Status `json:"status"`
 	// Only available for STOPPED status.
 	State []byte `json:"state"`
 	// Only available for DONE status.
