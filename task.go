@@ -6,14 +6,12 @@ import ()
 type Task interface {
 	// Save serializes the state to byte slice.
 	Save() ([]byte, error)
-	// Load deserializes the saved state.
+	// Init initialize the task and deserializes the saved state.
 	// Param:
 	// state: saved state by calling Save().
 	// int64: number of current step(index).
 	// int64: number of total steps. It's used to compute progress.
-	Load(state []byte) (int64, int64, error)
-	// Init does the initialization before the first step starts.
-	Init() error
+	Init(state []byte) (int64, int64, error)
 	// Deinit deinitializes after all steps are done.
 	Deinit() error
 	// Step does the real work.

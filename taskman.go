@@ -158,17 +158,9 @@ func (tm *TaskMan) run(id int, state []byte, td *taskData) {
 	tm.sem <- struct{}{}
 
 	// Init the task.
-	if err = td.task.Init(); err != nil {
+	if current, total, err = td.task.Init(state); err != nil {
 		tm.onError(tm.env, id, err)
 		return
-	}
-
-	// Load the state.
-	if state != nil {
-		if current, total, err = td.task.Load(state); err != nil {
-			tm.onError(tm.env, id, err)
-			return
-		}
 	}
 
 	atomic.AddInt64(&tm.total, total)
