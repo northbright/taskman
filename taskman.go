@@ -171,6 +171,9 @@ func (tm *TaskMan) run(id int, state []byte, td *taskData) {
 	atomic.AddInt64(&tm.total, total)
 	atomic.AddInt32(&tm.runningTasksNum, 1)
 
+	td.setStatus(STARTED)
+	tm.onStatusChanged(tm.env, id, STARTED, nil, nil)
+
 	for {
 		select {
 		case <-td.toStopCh:
