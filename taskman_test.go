@@ -14,11 +14,12 @@ type State struct {
 }
 
 type MyTask struct {
+	Name  string
 	State State `json:"state"`
 }
 
-func NewTask() *MyTask {
-	return &MyTask{State: State{Current: 0, Total: 100}}
+func NewTask(name string) *MyTask {
+	return &MyTask{Name: name, State: State{Current: 0, Total: 100}}
 }
 
 func (t *MyTask) Save() ([]byte, error) {
@@ -41,8 +42,8 @@ func (t *MyTask) Step() (int64, bool, []byte, error) {
 	var result []byte
 
 	if t.State.Current < t.State.Total {
-		log.Printf("Working on step: %v", t.State.Current)
 		t.State.Current += 1
+		log.Printf("%s working... %v", t.Name, t.State.Current)
 		time.Sleep(time.Millisecond * 10)
 	} else {
 		done = true
@@ -69,8 +70,16 @@ func onError(env interface{}, id int, err error) {
 func Example() {
 	tm, _ := taskman.New(1, nil, onStatusChanged, onProgressUpdated, onError)
 
-	t := NewTask()
-	id, _ := tm.Add(t)
+	t1 := NewTask("Task 1")
+	id, _ := tm.Add(t1)
+	log.Printf("Add task: id: %v", id)
+
+	tm.Start(id, nil)
+
+	<-time.After(time.Millisecond * 100)
+
+	t2 := NewTask("Task 2")
+	id, _ = tm.Add(t2)
 	log.Printf("Add task: id: %v", id)
 
 	tm.Start(id, nil)
