@@ -188,9 +188,17 @@ func (tm *TaskMan) run(id int, state []byte, td *taskData) {
 	tm.sem <- struct{}{}
 
 	// Init the task.
-	if current, total, err = td.task.Init(state); err != nil {
+	if err = td.task.Init(); err != nil {
 		tm.onError(tm.env, id, err)
 		return
+	}
+
+	// Load the state.
+	if state != nil {
+		if current, total, err = td.task.Load(state); err != nil {
+			tm.onError(tm.env, id, err)
+			return
+		}
 	}
 
 	atomic.AddInt64(&tm.total, total)
@@ -204,7 +212,7 @@ func (tm *TaskMan) run(id int, state []byte, td *taskData) {
 			atomic.AddInt64(&tm.total, -total)
 
 			// Save state when task stopped.
-			if savedState, err = td.task.MarshalBinary(); err != nil {
+			if savedState, err = td.task.Save(); err != nil {
 				tm.onError(tm.env, id, err)
 			}
 
@@ -249,7 +257,7 @@ func (tm *TaskMan) run(id int, state []byte, td *taskData) {
 
 			if done {
 				// Save final state.
-				if savedState, err = td.task.MarshalBinary(); err != nil {
+				if savedState, err = td.task.Save(); err != nil {
 					tm.onError(tm.env, id, err)
 					return
 				}

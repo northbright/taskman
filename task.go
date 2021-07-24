@@ -1,22 +1,19 @@
 package taskman
 
-import (
-	"encoding"
-)
+import ()
 
 // Task is the common interface implemented by all real-world tasks.
 type Task interface {
-	// Should implement encoding.BinaryMarshaler interface:
-	// MarshalBinary() (data []byte, err error)
-	// Used to serialize task state
-	encoding.BinaryMarshaler
-	// Init does the initialization before the first step starts.
+	// Save serializes the state to byte slice.
+	Save() ([]byte, error)
+	// Load deserializes the saved state.
 	// Param:
-	// state: saved state. It can be nil for the first time.
-	// Return:
+	// state: saved state by calling Save().
 	// int64: number of current step(index).
 	// int64: number of total steps. It's used to compute progress.
-	Init(state []byte) (int64, int64, error)
+	Load(state []byte) (int64, int64, error)
+	// Init does the initialization before the first step starts.
+	Init() error
 	// Deinit deinitializes after all steps are done.
 	Deinit() error
 	// Step does the real work.
