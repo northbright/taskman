@@ -152,6 +152,10 @@ func (tm *TaskMan) run(id int, state []byte, td *taskData) {
 		result      []byte
 	)
 
+	defer func() {
+		<-tm.sem
+	}()
+
 	td.setStatus(SCHEDULED)
 	tm.onStatusChanged(tm.env, id, SCHEDULED, nil, nil)
 	td.scheduledCh <- struct{}{}
