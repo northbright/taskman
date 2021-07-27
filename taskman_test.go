@@ -22,14 +22,15 @@ func NewTask(name string) *MyTask {
 	return &MyTask{Name: name, State: State{Current: 0, Total: 100}}
 }
 
-func (t *MyTask) Save() ([]byte, error) {
+func (t *MyTask) MarshalBinary() ([]byte, error) {
 	return json.Marshal(t.State)
 }
 
-func (t *MyTask) Init(state []byte) (int64, int64, error) {
-	if state != nil {
-		json.Unmarshal(state, &t.State)
-	}
+func (t *MyTask) UnmarshalBinary(state []byte) error {
+	return json.Unmarshal(state, &t.State)
+}
+
+func (t *MyTask) Init() (int64, int64, error) {
 	return t.State.Current, t.State.Total, nil
 }
 
